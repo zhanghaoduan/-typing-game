@@ -21,6 +21,7 @@ const App = (() => {
     // Initialize app
     async function init() {
         Audio.init();
+        AuthUI.init();
         if (typeof ImageOCR !== 'undefined') ImageOCR.init();
         Storage.updateStreak();
         updateHomeStats();
@@ -31,6 +32,13 @@ const App = (() => {
         renderLeaderboard();
         renderReview();
         loadSettings();
+
+        // Show login page if not logged in
+        if (!AuthUI.isLoggedIn()) {
+            showPage('page-login');
+        } else {
+            showPage('page-home');
+        }
     }
 
     // Page navigation
@@ -45,6 +53,10 @@ const App = (() => {
         if (pageId === 'page-leaderboard') renderLeaderboard();
         if (pageId === 'page-review') renderReview();
         if (pageId === 'page-levels') renderLevels();
+        if (pageId === 'page-admin') renderAdminPanel();
+        if (pageId === 'page-upload' && AuthUI.isLoggedIn()) {
+            if (typeof ImageOCR !== 'undefined') ImageOCR.renderSavedUnits();
+        }
     }
 
     // Update home page statistics
@@ -219,12 +231,90 @@ const App = (() => {
         localStorage.setItem('typing_game_theme', theme);
     }
 
+    // Render admin panel
+    async function renderAdminPanel() {
+        if (!AuthUI.isAdmin()) return;
+        const container = document.getElementById('admin-units-list');
+        container.innerHTML = '<p class="empty-hint">加载中... Loading...</p>';
+
+        try {
+            const res = await AuthUI.apiRequest('/units/admin/all');
+            const data = await res.json();
+
+            if (!data.units || data.units.length === 0) {
+                container.innerHTML = '<p class="empty-hint">暂无单元 No units yet</p>';
+                return;
+            }
+
+            container.innerHTML = '';
+            data.units.forEach(unit => {
+                const totalItems = unit.words.length + unit.phrases.length + unit.sentences.length;
+                const div = document.createElement('div');
+                div.className = 'admin-unit-card';
+                div.innerHTML = `
+                    <div class="admin-unit-info">
+                        <h4>${unit.name} ${unit.is_public ? '<span class="public-badge">公开</span>' : ''}</h4>
+                        <p>作者: ${unit.author} | 单词: ${unit.words.length} | 词组: ${unit.phrases.length} | 句子: ${unit.sentences.length}</p>
+                        <p class="unit-date">${new Date(unit.created_at).toLocaleDateString()}</p>
+                    </div>
+                    <div class="admin-unit-actions">
+                        ${!unit.is_public ? `<button class="btn btn-small btn-primary" onclick="App.publishUnit(${unit.id})">📢 发布到公共库</button>` : ''}
+                        <button class="btn btn-small btn-outline" onclick="App.togglePublic(${unit.id})">${unit.is_public ? '设为私有' : '设为公开'}</button>
+                        <button class="btn btn-small btn-danger" onclick="App.deleteUnit(${unit.id})">🗑️ 删除</button>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        } catch (e) {
+            container.innerHTML = '<p class="empty-hint">加载失败 Failed to load</p>';
+        }
+    }
+
+    // Admin: publish unit to public library
+    async function publishUnit(id) {
+        try {
+            const res = await AuthUI.apiRequest(`/units/admin/publish/${id}`, { method: 'POST' });
+            const data = await res.json();
+            alert(data.message);
+            renderAdminPanel();
+        } catch (e) {
+            alert('操作失败 Operation failed');
+        }
+    }
+
+    // Admin: toggle public status
+    async function togglePublic(id) {
+        try {
+            const res = await AuthUI.apiRequest(`/units/admin/toggle-public/${id}`, { method: 'POST' });
+            const data = await res.json();
+            alert(data.message);
+            renderAdminPanel();
+        } catch (e) {
+            alert('操作失败 Operation failed');
+        }
+    }
+
+    // Delete unit
+    async function deleteUnit(id) {
+        if (!confirm('确认删除？ Confirm delete?')) return;
+        try {
+            await AuthUI.apiRequest(`/units/${id}`, { method: 'DELETE' });
+            renderAdminPanel();
+        } catch (e) {
+            alert('删除失败 Delete failed');
+        }
+    }
+
     return {
         init,
         showPage,
         updateHomeStats,
         renderReview,
-        setTheme
+        setTheme,
+        renderAdminPanel,
+        publishUnit,
+        togglePublic,
+        deleteUnit
     };
 })();
 

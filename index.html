@@ -7,9 +7,40 @@
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+    <!-- ========== LOGIN PAGE ========== -->
+    <div id="page-login" class="page active">
+        <div class="auth-container">
+            <div class="logo-area">
+                <div class="logo-icon">⌨️</div>
+                <h1>英语打字闯关</h1>
+                <h2>English Typing Adventure</h2>
+            </div>
+            <div class="auth-tabs">
+                <button class="auth-tab active" data-tab="login" onclick="AuthUI.showTab('login')">登录 Login</button>
+                <button class="auth-tab" data-tab="register" onclick="AuthUI.showTab('register')">注册 Register</button>
+            </div>
+            <div id="login-form" class="auth-form">
+                <input type="text" id="login-username" placeholder="用户名 Username" autocomplete="username">
+                <input type="password" id="login-password" placeholder="密码 Password" autocomplete="current-password"
+                    onkeydown="if(event.key==='Enter')AuthUI.handleLogin()">
+                <p class="auth-error" id="login-error"></p>
+                <button class="btn btn-primary btn-large" onclick="AuthUI.handleLogin()">登录 Login</button>
+            </div>
+            <div id="register-form" class="auth-form" style="display:none;">
+                <input type="text" id="register-username" placeholder="用户名 Username (2-20字符)" autocomplete="username">
+                <input type="password" id="register-password" placeholder="密码 Password (至少4位)" autocomplete="new-password">
+                <input type="password" id="register-confirm" placeholder="确认密码 Confirm Password" autocomplete="new-password"
+                    onkeydown="if(event.key==='Enter')AuthUI.handleRegister()">
+                <p class="auth-error" id="register-error"></p>
+                <button class="btn btn-primary btn-large" onclick="AuthUI.handleRegister()">注册 Register</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ========== HOME PAGE ========== -->
-    <div id="page-home" class="page active">
+    <div id="page-home" class="page">
         <div class="home-container">
+            <div id="user-info" class="user-info" style="display:none;"></div>
             <div class="logo-area">
                 <div class="logo-icon">⌨️</div>
                 <h1>英语打字闯关</h1>
@@ -48,6 +79,9 @@
                 </button>
                 <button class="btn btn-outline btn-large" onclick="App.showPage('page-leaderboard')">
                     📊 排行榜 Leaderboard
+                </button>
+                <button class="btn btn-danger btn-large" id="admin-panel-btn" style="display:none;" onclick="App.showPage('page-admin')">
+                    👑 管理面板 Admin Panel
                 </button>
             </div>
             <div class="home-footer">
@@ -362,6 +396,22 @@
         </div>
     </div>
 
+    <!-- ========== ADMIN PAGE ========== -->
+    <div id="page-admin" class="page">
+        <div class="page-header">
+            <button class="btn-back" onclick="App.showPage('page-home')">← 返回</button>
+            <h2>👑 管理面板 Admin Panel</h2>
+        </div>
+        <div class="admin-content">
+            <div class="admin-section">
+                <h3>📂 所有用户的单元 All Users' Units</h3>
+                <div id="admin-units-list">
+                    <p class="empty-hint">加载中... Loading...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ========== CELEBRATION OVERLAY ========== -->
     <div id="celebration" class="celebration" style="display:none;">
         <div class="celebration-content">
@@ -376,6 +426,7 @@
     <!-- Scripts -->
     <script src="js/audio.js"></script>
     <script src="js/storage.js"></script>
+    <script src="js/auth-ui.js"></script>
     <script src="js/game.js"></script>
     <script src="js/ocr.js"></script>
     <script src="js/app.js"></script>

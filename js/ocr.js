@@ -763,6 +763,7 @@ const ImageOCR = (() => {
     // ========== SAVE / LOAD UNITS ==========
     const STORAGE_KEY = 'typing_game_custom_units';
 
+    // Get saved units - from API if logged in, localStorage as fallback
     function getSavedUnits() {
         try {
             const raw = localStorage.getItem(STORAGE_KEY);
@@ -776,8 +777,71 @@ const ImageOCR = (() => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(units));
     }
 
-    // Save current unit to localStorage
-    function saveUnit() {
+    // Fetch units from server
+    async function fetchServerUnits() {
+        if (!AuthUI.isLoggedIn()) return { myUnits: [], publicUnits: [] };
+        try {
+            const res = await AuthUI.apiRequest('/units');
+            if (!res.ok) return { myUnits: [], publicUnits: [] };
+            return await res.json();
+        } catch (e) {
+            return { myUnits: [], publicUnits: [] };
+        }
+    }
+
+    // Save unit to server
+    async function saveUnitToServer(unit) {
+        if (!AuthUI.isLoggedIn()) return null;
+        try {
+            const res = await AuthUI.apiRequest('/units', {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: unit.name,
+                    words: unit.words,
+                    phrases: unit.phrases,
+                    sentences: unit.sentences
+                })
+            });
+            if (!res.ok) return null;
+            return await res.json();
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // Update unit on server
+    async function updateUnitOnServer(id, unit) {
+        if (!AuthUI.isLoggedIn()) return null;
+        try {
+            const res = await AuthUI.apiRequest(`/units/${id}`, {
+                method: 'PUT',
+                body: JSON.stringify({
+                    name: unit.name,
+                    words: unit.words,
+                    phrases: unit.phrases,
+                    sentences: unit.sentences
+                })
+            });
+            if (!res.ok) return null;
+            return await res.json();
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // Delete unit from server
+    async function deleteUnitFromServer(id) {
+        if (!AuthUI.isLoggedIn()) return false;
+        try {
+            const res = await AuthUI.apiRequest(`/units/${id}`, { method: 'DELETE' });
+            return res.ok;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Save current unit to server (and localStorage as backup)
+    async function saveUnit() {
         collectEdits();
 
         const unitName = recognizedData.unitName || '未命名单元 Unnamed Unit';
@@ -797,22 +861,44 @@ const ImageOCR = (() => {
             sentences: [...recognizedData.sentences]
         };
 
-        const units = getSavedUnits();
+        // Save to server if logged in
+        if (AuthUI.isLoggedIn()) {
+            if (recognizedData._editingServerId) {
+                // Update existing unit on server
+                const result = await updateUnitOnServer(recognizedData._editingServerId, unit);
+                if (result) {
+                    recognizedData._editingServerId = null;
+                    recognizedData._editingIdx = null;
+                    await renderSavedUnits();
+                    alert(`✅ 已更新 "${unitName}"\n单词: ${unit.words.length} | 词组: ${unit.phrases.length} | 句子: ${unit.sentences.length}`);
+                    return;
+                }
+            } else {
+                // Save new unit to server
+                const result = await saveUnitToServer(unit);
+                if (result) {
+                    await renderSavedUnits();
+                    alert(`✅ 已保存 "${unitName}"\n单词: ${unit.words.length} | 词组: ${unit.phrases.length} | 句子: ${unit.sentences.length}`);
+                    return;
+                }
+            }
+            alert('服务器保存失败，已保存到本地 Server save failed, saved locally');
+        }
 
-        // If we're editing an existing unit, overwrite it directly
+        // Fallback: save to localStorage
+        const units = getSavedUnits();
         if (recognizedData._editingIdx !== undefined && recognizedData._editingIdx !== null) {
             const editIdx = recognizedData._editingIdx;
             if (editIdx >= 0 && editIdx < units.length) {
-                unit.id = units[editIdx].id; // Keep original ID
-                unit.createdAt = units[editIdx].createdAt; // Keep original date
+                unit.id = units[editIdx].id;
+                unit.createdAt = units[editIdx].createdAt;
                 unit.updatedAt = new Date().toISOString();
                 units[editIdx] = unit;
             } else {
                 units.push(unit);
             }
-            recognizedData._editingIdx = null; // Clear editing state
+            recognizedData._editingIdx = null;
         } else {
-            // Check if unit with same name exists, ask to overwrite
             const existingIdx = units.findIndex(u => u.name === unitName);
             if (existingIdx >= 0) {
                 if (!confirm(`"${unitName}" 已存在，是否覆盖？\n"${unitName}" already exists. Overwrite?`)) {
@@ -826,15 +912,82 @@ const ImageOCR = (() => {
 
         saveSavedUnits(units);
         renderSavedUnits();
-
         alert(`✅ 已保存 "${unitName}"\n单词: ${unit.words.length} | 词组: ${unit.phrases.length} | 句子: ${unit.sentences.length}\n\nSaved! Words: ${unit.words.length} | Phrases: ${unit.phrases.length} | Sentences: ${unit.sentences.length}`);
     }
 
-    // Render the list of saved custom units
-    function renderSavedUnits() {
+    // Render the list of saved custom units (from server + local)
+    async function renderSavedUnits() {
         const container = document.getElementById('saved-units-list');
         if (!container) return;
 
+        // If logged in, fetch from server
+        if (AuthUI.isLoggedIn()) {
+            container.innerHTML = '<p class="empty-hint">加载中... Loading...</p>';
+            const serverData = await fetchServerUnits();
+            const myUnits = serverData.myUnits || [];
+            const publicUnits = serverData.publicUnits || [];
+
+            if (myUnits.length === 0 && publicUnits.length === 0) {
+                container.innerHTML = '<p class="empty-hint">暂无已保存的单元 No saved units yet</p>';
+                return;
+            }
+
+            let html = '';
+
+            // My units
+            if (myUnits.length > 0) {
+                html += '<h4 style="margin:8px 0;color:var(--primary);">📁 我的单元 My Units</h4>';
+                myUnits.forEach((unit) => {
+                    const date = new Date(unit.created_at).toLocaleDateString('zh-CN');
+                    const total = (unit.words || []).length + (unit.phrases || []).length + (unit.sentences || []).length;
+                    html += `<div class="saved-unit-card">
+                        <div class="saved-unit-info">
+                            <h4>${escapeHtml(unit.name)} ${unit.is_public ? '<span class="public-badge">公开</span>' : ''}</h4>
+                            <p>📅 ${date} | 📝 ${(unit.words||[]).length}词 + ${(unit.phrases||[]).length}短语 + ${(unit.sentences||[]).length}句子 = ${total}项</p>
+                        </div>
+                        <div class="saved-unit-actions">
+                            <button class="btn btn-small btn-primary" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'words')">单词</button>
+                            <button class="btn btn-small btn-secondary" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'phrases')">词组</button>
+                            <button class="btn btn-small btn-accent" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'sentences')">句子</button>
+                            <button class="btn btn-small btn-warning" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'listening')">听力</button>
+                            <button class="btn btn-small btn-outline" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'all')">全部</button>
+                            <button class="btn btn-small btn-info" onclick="ImageOCR.editServerUnit(${unit.id})" title="修改编辑">✏️</button>
+                            <button class="btn btn-small btn-danger" onclick="ImageOCR.deleteServerUnit(${unit.id})" title="删除">🗑️</button>
+                        </div>
+                    </div>`;
+                });
+            }
+
+            // Public units
+            if (publicUnits.length > 0) {
+                html += '<h4 style="margin:16px 0 8px;color:var(--success);">🌍 公共库 Public Library</h4>';
+                publicUnits.forEach((unit) => {
+                    const date = new Date(unit.created_at).toLocaleDateString('zh-CN');
+                    const total = (unit.words || []).length + (unit.phrases || []).length + (unit.sentences || []).length;
+                    html += `<div class="saved-unit-card public-unit">
+                        <div class="saved-unit-info">
+                            <h4>${escapeHtml(unit.name)}</h4>
+                            <p>👤 ${escapeHtml(unit.author)} | 📅 ${date} | 📝 ${total}项</p>
+                        </div>
+                        <div class="saved-unit-actions">
+                            <button class="btn btn-small btn-primary" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'words')">单词</button>
+                            <button class="btn btn-small btn-secondary" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'phrases')">词组</button>
+                            <button class="btn btn-small btn-accent" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'sentences')">句子</button>
+                            <button class="btn btn-small btn-warning" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'listening')">听力</button>
+                            <button class="btn btn-small btn-outline" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'all')">全部</button>
+                        </div>
+                    </div>`;
+                });
+            }
+
+            container.innerHTML = html;
+
+            // Cache server units locally for practice
+            _cachedServerUnits = [...myUnits, ...publicUnits];
+            return;
+        }
+
+        // Fallback: show localStorage units
         const units = getSavedUnits();
         if (units.length === 0) {
             container.innerHTML = '<p class="empty-hint">暂无已保存的单元 No saved units yet</p>';
@@ -863,6 +1016,70 @@ const ImageOCR = (() => {
         });
 
         container.innerHTML = html;
+    }
+
+    // Cache for server units (to avoid re-fetching for practice)
+    let _cachedServerUnits = [];
+
+    // Practice a server unit
+    function practiceServerUnit(unitId, type) {
+        const unit = _cachedServerUnits.find(u => u.id === unitId);
+        if (!unit) return;
+
+        let items = [];
+        if (type === 'words' || type === 'all' || type === 'listening') {
+            (unit.words || []).forEach(w => {
+                items.push({ type: 'word', en: w.en, cn: w.cn || '(自定义)', difficulty: w.difficulty || 1 });
+            });
+        }
+        if (type === 'phrases' || type === 'all' || type === 'listening') {
+            (unit.phrases || []).forEach(p => {
+                items.push({ type: 'phrase', en: p.en, cn: p.cn || '(自定义)', difficulty: p.difficulty || 2 });
+            });
+        }
+        if (type === 'sentences' || type === 'all') {
+            (unit.sentences || []).forEach(s => {
+                items.push({ type: 'sentence', en: s.en, cn: s.cn || '(自定义)', difficulty: s.difficulty || 3 });
+            });
+        }
+
+        if (items.length === 0) {
+            alert('该类别没有内容 No content in this category');
+            return;
+        }
+
+        for (let i = items.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [items[i], items[j]] = [items[j], items[i]];
+        }
+
+        Game.startCustomPractice(items, type === 'listening' ? 'listening' : 'mixed');
+    }
+
+    // Edit a server unit
+    function editServerUnit(unitId) {
+        const unit = _cachedServerUnits.find(u => u.id === unitId);
+        if (!unit) return;
+
+        recognizedData.unitName = unit.name;
+        recognizedData.words = (unit.words || []).map(w => ({ en: w.en, cn: w.cn || '' }));
+        recognizedData.phrases = (unit.phrases || []).map(p => ({ en: p.en, cn: p.cn || '' }));
+        recognizedData.sentences = (unit.sentences || []).map(s => ({ en: s.en, cn: s.cn || '' }));
+        recognizedData._editingServerId = unitId;
+        recognizedData._editingIdx = null;
+
+        showProofreadUI();
+    }
+
+    // Delete a server unit
+    async function deleteServerUnit(unitId) {
+        if (!confirm('确定删除？\nConfirm delete?')) return;
+        const success = await deleteUnitFromServer(unitId);
+        if (success) {
+            await renderSavedUnits();
+        } else {
+            alert('删除失败 Delete failed');
+        }
     }
 
     // Practice a saved unit
@@ -1007,6 +1224,9 @@ const ImageOCR = (() => {
         practiceUnit,
         editUnit,
         deleteUnit,
-        renderSavedUnits
+        renderSavedUnits,
+        practiceServerUnit,
+        editServerUnit,
+        deleteServerUnit
     };
 })();
