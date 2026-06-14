@@ -1,0 +1,1012 @@
+/* ============================================
+   OCR Module - Image upload and text recognition
+   图片上传与文字识别模块
+   
+   Uses Tesseract.js to recognize English text
+   from uploaded images (textbook photos, test papers).
+   Includes smart structured parsing, proofreading,
+   and save/load for unit practice.
+   ============================================ */
+
+const ImageOCR = (() => {
+    let recognizedData = {
+        unitName: '',
+        words: [],
+        phrases: [],
+        sentences: [],
+        raw: ''
+    };
+
+    // Initialize upload area event listeners
+    function init() {
+        const dropzone = document.getElementById('upload-dropzone');
+        const fileInput = document.getElementById('upload-input');
+
+        if (!dropzone || !fileInput) return;
+
+        // Click to upload
+        dropzone.addEventListener('click', () => fileInput.click());
+
+        // File selected
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        // Drag and drop
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.classList.remove('dragover');
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                handleFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        // Render saved units list
+        renderSavedUnits();
+    }
+
+    // Handle uploaded file
+    function handleFile(file) {
+        if (!file.type.startsWith('image/')) {
+            alert('请上传图片文件 Please upload an image file');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            document.getElementById('preview-image').src = e.target.result;
+            document.getElementById('upload-preview').style.display = 'block';
+            document.getElementById('upload-area').style.display = 'none';
+            performOCR(e.target.result);
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // Perform OCR using Tesseract.js
+    async function performOCR(imageData) {
+        const progressEl = document.getElementById('upload-progress');
+        const progressFill = document.getElementById('ocr-progress-fill');
+        const statusEl = document.getElementById('ocr-status');
+
+        progressEl.style.display = 'block';
+        document.getElementById('upload-results').style.display = 'none';
+
+        try {
+            statusEl.textContent = '正在加载识别引擎... Loading OCR engine...';
+            progressFill.style.width = '10%';
+
+            // Use English recognition - Chinese headers detected by regex patterns
+            const result = await Tesseract.recognize(imageData, 'eng', {
+                logger: (m) => {
+                    if (m.status === 'recognizing text') {
+                        const pct = Math.round(m.progress * 100);
+                        progressFill.style.width = (10 + pct * 0.8) + '%';
+                        statusEl.textContent = `识别中... Recognizing: ${pct}%`;
+                    }
+                }
+            });
+
+            progressFill.style.width = '100%';
+            statusEl.textContent = '识别完成！Recognition complete!';
+
+            const rawText = result.data.text;
+            console.log('[OCR] Raw text:', rawText);
+
+            // Smart structured parsing
+            smartParse(rawText);
+
+            // Show proofreading UI after short delay
+            setTimeout(() => {
+                progressEl.style.display = 'none';
+                showProofreadUI();
+            }, 800);
+
+        } catch (err) {
+            console.error('[OCR] Error:', err);
+            statusEl.textContent = '识别失败 Recognition failed: ' + err.message;
+            progressFill.style.width = '0%';
+        }
+    }
+
+    // ========== AUTO-TRANSLATE DICTIONARY ==========
+    // Common Grade 7 vocabulary with Chinese translations
+    const DICT = {
+        delicious:'美味的',porridge:'粥',menu:'菜单',medicine:'药',remained:'保持;剩余',
+        mixture:'混合物',plate:'盘子',snack:'零食',dangerous:'危险的',western:'西方的',
+        store:'储存;商店',carrots:'胡萝卜',diet:'饮食',emperor:'皇帝',slices:'片;切片',
+        food:'食物',taste:'味道',smell:'气味',memories:'记忆',cultures:'文化',
+        bridge:'桥梁',borders:'边界',sweet:'甜的',certain:'某个;确定的',bodies:'身体',
+        salt:'盐',fat:'脂肪',porridge:'粥',great:'伟大的;很棒的',kind:'种类;善良的',
+        folk:'民间的',tale:'故事',twin:'双胞胎',brothers:'兄弟',suffer:'遭受',
+        school:'学校',teacher:'老师',student:'学生',homework:'家庭作业',subject:'科目',
+        english:'英语',chinese:'中文',math:'数学',science:'科学',history:'历史',
+        geography:'地理',music:'音乐',sports:'运动',art:'艺术',computer:'电脑',
+        animal:'动物',cat:'猫',dog:'狗',bird:'鸟',fish:'鱼',rabbit:'兔子',
+        weather:'天气',sunny:'晴天',rainy:'下雨的',cloudy:'多云的',windy:'有风的',
+        hot:'热的',cold:'冷的',warm:'温暖的',cool:'凉爽的',temperature:'温度',
+        travel:'旅行',visit:'参观',museum:'博物馆',library:'图书馆',hospital:'医院',
+        restaurant:'餐厅',supermarket:'超市',cinema:'电影院',park:'公园',hotel:'宾馆',
+        breakfast:'早餐',lunch:'午餐',dinner:'晚餐',rice:'米饭',noodles:'面条',
+        bread:'面包',milk:'牛奶',juice:'果汁',water:'水',coffee:'咖啡',tea:'茶',
+        fruit:'水果',apple:'苹果',banana:'香蕉',orange:'橙子',grape:'葡萄',
+        vegetable:'蔬菜',potato:'土豆',tomato:'番茄',chicken:'鸡肉',beef:'牛肉',
+        hobby:'爱好',reading:'阅读',swimming:'游泳',running:'跑步',singing:'唱歌',
+        dancing:'跳舞',painting:'绘画',cooking:'烹饪',shopping:'购物',playing:'玩耍',
+        family:'家庭',father:'父亲',mother:'母亲',brother:'兄弟',sister:'姐妹',
+        uncle:'叔叔',aunt:'阿姨',cousin:'表亲',grandpa:'爷爷',grandma:'奶奶',
+        happy:'高兴的',sad:'悲伤的',angry:'生气的',tired:'累的',excited:'兴奋的',
+        beautiful:'美丽的',wonderful:'极好的',terrible:'糟糕的',important:'重要的',
+        healthy:'健康的',different:'不同的',popular:'流行的',famous:'著名的',
+        interesting:'有趣的',difficult:'困难的',easy:'容易的',expensive:'昂贵的',
+        cheap:'便宜的',comfortable:'舒适的',traditional:'传统的',modern:'现代的',
+        festival:'节日',spring:'春天',summer:'夏天',autumn:'秋天',winter:'冬天',
+        january:'一月',february:'二月',march:'三月',april:'四月',monday:'星期一',
+        future:'未来',plan:'计划',dream:'梦想',hope:'希望',wish:'愿望',
+        remember:'记住',forget:'忘记',believe:'相信',decide:'决定',practice:'练习',
+        exercise:'锻炼',protect:'保护',discover:'发现',invent:'发明',develop:'发展',
+        happen:'发生',remain:'保持',cross:'穿过',bring:'带来',often:'经常',
+        usually:'通常',sometimes:'有时',always:'总是',never:'从不',already:'已经'
+    };
+
+    // ========== PHRASE & SENTENCE DICTIONARIES ==========
+    // Common Grade 7 phrases with full Chinese translations
+    const PHRASE_DICT = {
+        'see...as': '把……看作',
+        'see as': '把……看作',
+        'is a lot like': '很像；和……很相似',
+        'a lot like': '很像',
+        'is a bridge between': '是……之间的桥梁',
+        'a bridge between': '……之间的桥梁',
+        'came from': '来自',
+        'come from': '来自',
+        'folk tale': '民间故事',
+        'suffer from': '遭受；患……病',
+        'twin brothers': '双胞胎兄弟',
+        'all the way back to': '一直追溯到',
+        'all the way': '一路；一直',
+        'back to': '回到',
+        'bring back': '带回；使回忆起',
+        'bring back memories': '唤起回忆',
+        'in its own way': '以它自己的方式',
+        'each kind of': '每一种',
+        'a certain': '某个；某种',
+        'work well': '运作良好',
+        'look like': '看起来像',
+        'a lot of': '许多',
+        'lots of': '许多',
+        'be good at': '擅长',
+        'be interested in': '对……感兴趣',
+        'would like to': '想要',
+        'have to': '不得不',
+        'used to': '过去常常',
+        'be able to': '能够',
+        'look forward to': '期待',
+        'take care of': '照顾',
+        'get up': '起床',
+        'go to school': '去上学',
+        'go home': '回家',
+        'do homework': '做家庭作业',
+        'play sports': '做运动',
+        'listen to': '听',
+        'talk about': '谈论',
+        'think about': '考虑',
+        'learn about': '了解',
+        'find out': '发现；查明',
+        'make friends': '交朋友',
+        'have fun': '玩得开心',
+        'on time': '准时',
+        'at first': '起初',
+        'in fact': '事实上',
+        'of course': '当然',
+        'for example': '例如',
+        'such as': '例如',
+        'as well': '也',
+        'so far': '到目前为止',
+        'at least': '至少',
+        'at most': '最多',
+        'no longer': '不再',
+        'not only but also': '不仅……而且',
+        'between cultures': '文化之间',
+        'cross borders': '跨越边界',
+        'sweet things': '美好的事物',
+        'can happen': '会发生',
+        'taste great': '味道很棒',
+        'tastes great': '味道很棒'
+    };
+
+    // Common sentences with translations
+    const SENTENCE_DICT = {
+        'the taste and smell of a certain food can often bring back memories': '某种食物的味道和气味往往能唤起回忆。',
+        'each kind of porridge tastes great in its own way': '每种粥都以自己的方式味道很好。',
+        'we need fat and salt for our bodies to work well': '我们的身体需要脂肪和盐才能正常运作。',
+        'food is a bridge between cultures': '食物是文化之间的桥梁。',
+        'when food crosses borders, sweet things can happen': '当食物跨越国界时，美好的事情就会发生。',
+        'what would you like to eat': '你想吃什么？',
+        'how much is it': '多少钱？',
+        'what time do you get up': '你几点起床？',
+        'where are you from': '你来自哪里？',
+        'what do you usually do on weekends': '你周末通常做什么？',
+        'i like reading books in my free time': '我空闲时间喜欢读书。',
+        'she is good at playing the piano': '她擅长弹钢琴。',
+        'we should protect the environment': '我们应该保护环境。',
+        'he wants to be a doctor in the future': '他将来想成为一名医生。',
+        'they are going to visit the museum tomorrow': '他们明天要去参观博物馆。'
+    };
+
+    // Auto-translate: smart lookup with phrase/sentence support
+    function autoTranslate(text) {
+        if (!text) return '';
+        const lower = text.toLowerCase().trim().replace(/[.!?]+$/, '').trim();
+
+        // 1. Try exact sentence match
+        if (SENTENCE_DICT[lower]) return SENTENCE_DICT[lower];
+
+        // 2. Try exact phrase match
+        if (PHRASE_DICT[lower]) return PHRASE_DICT[lower];
+
+        // 3. Try phrase match with variations (with/without dots)
+        const noDots = lower.replace(/\.\.\./g, '').replace(/…/g, '').replace(/\s+/g, ' ').trim();
+        if (PHRASE_DICT[noDots]) return PHRASE_DICT[noDots];
+
+        // 4. Single word - direct dictionary lookup
+        if (lower.split(/\s+/).length === 1) {
+            const word = lower.replace(/[^a-z]/g, '');
+            return DICT[word] || DICT[word.replace(/s$/, '')] || DICT[word.replace(/ed$/, '')] || 
+                   DICT[word.replace(/ing$/, '')] || DICT[word.replace(/ly$/, '')] || '';
+        }
+
+        // 5. Try partial phrase matching (look for known phrases within the text)
+        for (const [phrase, translation] of Object.entries(PHRASE_DICT)) {
+            if (lower.includes(phrase) && phrase.split(/\s+/).length >= 2) {
+                return translation;
+            }
+        }
+
+        // 6. For multi-word text, try to build a meaningful translation
+        // Don't do word-by-word for sentences (looks bad), just return empty
+        const wordCount = lower.split(/\s+/).length;
+        if (wordCount >= 5) {
+            // It's a sentence - don't attempt word-by-word
+            return '';
+        }
+
+        // For short phrases (2-4 words), try combined lookup
+        const words = lower.split(/\s+/).filter(w => w.length >= 2);
+        const meaningful = words.map(w => {
+            const clean = w.replace(/[^a-z]/g, '');
+            return DICT[clean] || DICT[clean.replace(/s$/, '')] || '';
+        }).filter(t => t);
+
+        // Only return if we translated most words meaningfully
+        if (meaningful.length >= Math.ceil(words.length * 0.6)) {
+            return meaningful.join('');
+        }
+
+        return '';
+    }
+
+    // ========== SMART STRUCTURED PARSING ==========
+    function smartParse(rawText) {
+        recognizedData = { unitName: '', words: [], phrases: [], sentences: [], raw: rawText };
+
+        const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+        // 1. Detect unit name
+        for (const line of lines) {
+            const unitMatch = line.match(/Unit\s*\d+[\s:.\-]*[A-Za-z\s]+/i);
+            if (unitMatch) {
+                recognizedData.unitName = unitMatch[0].trim();
+                break;
+            }
+        }
+
+        // 2. Collect all content lines (lines with valid English)
+        // Strategy: Group lines into sections by detecting "number restart" (1. appears again)
+        // and by detecting garbage/header lines between content groups
+        const contentGroups = []; // Array of groups, each group = { lines: [], type: 'words'|'phrases'|'sentences' }
+        let currentGroup = null;
+        let lastNumber = 0;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+
+            // Skip unit title
+            if (/Unit\s*\d+/i.test(line) && line.match(/[A-Z]/)) {
+                if (recognizedData.unitName === '') {
+                    const m = line.match(/Unit\s*\d+[\s:.\-]*[A-Za-z\s]+/i);
+                    if (m) recognizedData.unitName = m[0].trim();
+                }
+                continue;
+            }
+
+            // Check if this line has valid English numbered content
+            const hasEnglish = line.match(/[a-zA-Z]{2,}/);
+            const firstNum = line.match(/^\s*(\d{1,2})[.\s、:]/);
+            const hasNumberedContent = firstNum && hasEnglish;
+
+            // Detect if this is a non-content/header line (Chinese header or OCR garbage)
+            const isGarbageLine = isHeaderOrGarbage(line);
+
+            if (isGarbageLine) {
+                // This might be a section header - start a new group
+                if (currentGroup && currentGroup.items.length > 0) {
+                    contentGroups.push(currentGroup);
+                }
+                currentGroup = null;
+                lastNumber = 0;
+                continue;
+            }
+
+            if (!hasEnglish) continue;
+
+            // If we see numbering restart (back to 1, 2, etc. after higher numbers)
+            if (firstNum) {
+                const num = parseInt(firstNum[1]);
+                if (num === 1 && lastNumber > 1) {
+                    // Numbering restarted → new section
+                    if (currentGroup && currentGroup.items.length > 0) {
+                        contentGroups.push(currentGroup);
+                    }
+                    currentGroup = null;
+                }
+                lastNumber = num;
+            }
+
+            // Extract items from this line
+            const items = extractItems(line);
+            if (items.length > 0) {
+                if (!currentGroup) {
+                    currentGroup = { items: [], avgWordCount: 0 };
+                }
+                currentGroup.items.push(...items);
+                // Track the last number seen
+                const nums = line.match(/\d{1,2}(?=[.\s、:])/g);
+                if (nums) {
+                    lastNumber = Math.max(lastNumber, ...nums.map(n => parseInt(n)));
+                }
+            } else {
+                // Line has English but no numbered items - might be a sentence without number
+                const english = extractEnglish(line);
+                if (english && english.split(/\s+/).length >= 5) {
+                    if (!currentGroup) {
+                        currentGroup = { items: [], avgWordCount: 0 };
+                    }
+                    currentGroup.items.push(english);
+                }
+            }
+        }
+
+        // Push last group
+        if (currentGroup && currentGroup.items.length > 0) {
+            contentGroups.push(currentGroup);
+        }
+
+        // 3. Classify each group as words, phrases, or sentences
+        contentGroups.forEach((group, idx) => {
+            const avgWords = group.items.reduce((sum, item) => sum + item.split(/\s+/).length, 0) / group.items.length;
+
+            let section;
+            if (avgWords <= 1.3) {
+                section = 'words';
+            } else if (avgWords <= 4.5) {
+                section = 'phrases';
+            } else {
+                section = 'sentences';
+            }
+
+            // Respect expected order: if previous groups were already 'words' then 'phrases',
+            // this one should be 'sentences' even if avgWords is low
+            if (idx > 0) {
+                const prevSections = contentGroups.slice(0, idx)
+                    .map(g => g.assignedSection)
+                    .filter(Boolean);
+                if (prevSections.includes('words') && prevSections.includes('phrases') && section !== 'sentences') {
+                    section = 'sentences';
+                } else if (prevSections.includes('words') && !prevSections.includes('phrases') && section === 'words') {
+                    section = 'phrases';
+                }
+            }
+
+            group.assignedSection = section;
+
+            group.items.forEach(item => {
+                addToSection(item, section);
+            });
+        });
+
+        // If parsing found very little, use enhanced fallback
+        const total = recognizedData.words.length + recognizedData.phrases.length + recognizedData.sentences.length;
+        if (total < 5) {
+            enhancedFallbackParse(lines);
+        }
+
+        // Auto-translate all items
+        autoTranslateAll();
+
+        console.log('[OCR] Smart parsed:', recognizedData.unitName,
+            '| Words:', recognizedData.words.length,
+            '| Phrases:', recognizedData.phrases.length,
+            '| Sentences:', recognizedData.sentences.length
+        );
+    }
+
+    // Detect if a line is a header/garbage (Chinese section header or OCR noise)
+    function isHeaderOrGarbage(line) {
+        // Contains Chinese section markers
+        if (/[一二三四五六七八九十][、.,\s]/.test(line)) return true;
+        if (/[Ⅰ-Ⅹ][、.,\s]/.test(line)) return true;
+        // Contains many Chinese characters
+        const chineseCount = (line.match(/[\u4e00-\u9fff]/g) || []).length;
+        if (chineseCount >= 3) return true;
+        // Very short line with no real English words (OCR garbage from Chinese)
+        const englishWords = (line.match(/\b[a-zA-Z]{2,}\b/g) || []);
+        if (line.length < 20 && englishWords.length === 0) return true;
+        // Contains typical OCR garbage patterns (random uppercase, %, symbols)
+        if (/^[—\-]+[.\s]/.test(line)) return true; // "—. BERGER." type garbage
+        if (line.match(/[%@#$&]{2,}/)) return true;
+        // Short line with mostly non-alpha characters
+        const alphaRatio = (line.match(/[a-zA-Z]/g) || []).length / Math.max(line.length, 1);
+        if (line.length < 25 && alphaRatio < 0.4 && !line.match(/\d+[.\s]+[a-zA-Z]{3,}/)) return true;
+        return false;
+    }
+
+    // Extract items from a line - handles numbered multi-column layouts
+    function extractItems(line) {
+        const items = [];
+
+        // First, split by patterns where a new numbered item starts
+        // Handle: "1. delicious 2. porridge 3. menu" and "1. see...as 2. is a lot like"
+        // Key: split at positions where \d+. or \d+<space> indicates a new item
+        
+        // Find all numbered item start positions
+        const starts = [];
+        const startRegex = /(?:^|\s)(\d{1,2})[.\s、:]+/g;
+        let m;
+        while ((m = startRegex.exec(line)) !== null) {
+            starts.push({ pos: m.index + (m[0].startsWith(' ') || m[0].startsWith('\t') ? 1 : 0), fullMatch: m[0] });
+        }
+
+        if (starts.length === 0) return items;
+
+        // Extract text between consecutive starts
+        for (let i = 0; i < starts.length; i++) {
+            const startPos = starts[i].pos + starts[i].fullMatch.trimStart().length;
+            const endPos = (i + 1 < starts.length) ? starts[i + 1].pos : line.length;
+            let text = line.substring(startPos, endPos).trim();
+
+            // Clean: remove trailing numbers that are part of next item
+            text = text.replace(/\s+\d{1,2}[.\s]*$/, '').trim();
+            // Remove trailing punctuation garbage
+            text = text.replace(/[,;\s]+$/, '').trim();
+
+            // Validate: must have at least one real English word (2+ alpha chars)
+            if (text.length >= 2 && text.match(/[a-zA-Z]{2,}/)) {
+                // Remove non-English garbage but keep dots/ellipsis (for "see...as")
+                const cleaned = text.replace(/[^a-zA-Z\s.,!?'"\-…]/g, '').trim();
+                if (cleaned.length >= 2) {
+                    items.push(cleaned);
+                }
+            }
+        }
+
+        return items;
+    }
+
+    // Extract English text from a mixed line - improved
+    function extractEnglish(line) {
+        // Remove Chinese characters and special markers
+        let english = line.replace(/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/g, ' ');
+        // Remove leading numbers/dots/markers
+        english = english.replace(/^\s*\d+[.\s、:]*/g, '');
+        // Clean up extra spaces
+        english = english.replace(/\s+/g, ' ').trim();
+        // Remove trailing garbage
+        english = english.replace(/[^\w\s.,!?'";\-]$/g, '').trim();
+
+        if (english.match(/[a-zA-Z]{2,}/)) {
+            return english;
+        }
+        return null;
+    }
+
+    // Add item to appropriate section - respects assigned section
+    function addToSection(text, section) {
+        text = text.trim();
+        if (!text || text.length < 2) return;
+
+        // Filter out obvious garbage
+        if (/^[—\-\s.%]+$/.test(text)) return;
+        if (!text.match(/[a-zA-Z]{2,}/)) return;
+
+        let targetSection = section || 'words';
+        const wordCount = text.split(/\s+/).length;
+
+        // If explicitly assigned to a section, trust it
+        // But do a sanity check for obvious mismatches
+        if (targetSection === 'words' && wordCount > 2 && !text.includes('...')) {
+            targetSection = isSentence(text) ? 'sentences' : 'phrases';
+        }
+
+        const cn = autoTranslate(text);
+        const item = {
+            en: text,
+            cn: cn,
+            difficulty: wordCount === 1 ? 1 : (wordCount <= 5 ? 2 : 3)
+        };
+
+        // Avoid duplicates
+        const list = recognizedData[targetSection];
+        if (!list.find(existing => existing.en.toLowerCase() === item.en.toLowerCase())) {
+            list.push(item);
+        }
+    }
+
+    // Determine if text is a sentence (vs phrase)
+    function isSentence(text) {
+        const wordCount = text.split(/\s+/).length;
+        if (wordCount >= 6) return true;
+        if (/^[A-Z]/.test(text) && /[.!?]$/.test(text)) return true;
+        if (/^(The|We|I|You|He|She|It|They|Each|When|Food|This|That)\s/i.test(text) && wordCount >= 5) return true;
+        return false;
+    }
+
+    // Enhanced fallback parse when structured detection fails
+    function enhancedFallbackParse(lines) {
+        lines.forEach(line => {
+            if (isHeaderOrGarbage(line)) return;
+            const items = extractItems(line);
+            if (items.length > 0) {
+                items.forEach(item => {
+                    const wc = item.split(/\s+/).length;
+                    if (wc === 1) addToSection(item, 'words');
+                    else if (wc <= 5) addToSection(item, 'phrases');
+                    else addToSection(item, 'sentences');
+                });
+            } else {
+                const english = extractEnglish(line);
+                if (english && english.split(/\s+/).length >= 6) {
+                    addToSection(english, 'sentences');
+                }
+            }
+        });
+    }
+
+    // Auto-translate all items after parsing
+    function autoTranslateAll() {
+        ['words', 'phrases', 'sentences'].forEach(type => {
+            recognizedData[type].forEach(item => {
+                if (!item.cn) {
+                    item.cn = autoTranslate(item.en);
+                }
+            });
+        });
+    }
+
+    // ========== PROOFREADING UI ==========
+    function showProofreadUI() {
+        const resultsEl = document.getElementById('upload-results');
+        resultsEl.style.display = 'block';
+
+        let html = '';
+
+        // Unit name input
+        html += `<div class="proofread-header">
+            <label>📚 单元名称 Unit Name:</label>
+            <input type="text" id="proofread-unit-name" class="proofread-input-title" 
+                   value="${escapeHtml(recognizedData.unitName)}" 
+                   placeholder="例如: Unit 3 Food matters">
+        </div>`;
+
+        // Words section
+        html += buildEditableSection('words', '📝 单词 Words', recognizedData.words);
+        // Phrases section
+        html += buildEditableSection('phrases', '📖 词组 Phrases', recognizedData.phrases);
+        // Sentences section
+        html += buildEditableSection('sentences', '💬 句子 Sentences', recognizedData.sentences);
+
+        // Action buttons
+        html += `<div class="proofread-actions">
+            <button class="btn btn-primary btn-large" onclick="ImageOCR.saveUnit()">
+                💾 保存单元 Save Unit
+            </button>
+            <button class="btn btn-secondary" onclick="ImageOCR.startPracticeFromProofread('all')">
+                🎮 直接练习 Practice Now
+            </button>
+        </div>`;
+
+        document.getElementById('recognized-items').innerHTML = html;
+    }
+
+    // Build an editable section for proofreading
+    function buildEditableSection(type, title, items) {
+        let html = `<div class="proofread-section" data-type="${type}">
+            <div class="proofread-section-header">
+                <h4>${title} (${items.length})</h4>
+                <button class="btn btn-small btn-outline" onclick="ImageOCR.addItem('${type}')">
+                    ➕ 添加 Add
+                </button>
+            </div>
+            <div class="proofread-items" id="proofread-${type}">`;
+
+        items.forEach((item, idx) => {
+            html += buildItemRow(type, idx, item);
+        });
+
+        html += `</div></div>`;
+        return html;
+    }
+
+    // Build a single editable item row
+    function buildItemRow(type, idx, item) {
+        if (type === 'sentences') {
+            // Use textarea for sentences to show full text
+            return `<div class="proofread-item proofread-item-sentence" data-idx="${idx}">
+                <span class="proofread-num">${idx + 1}.</span>
+                <div class="proofread-sentence-fields">
+                    <textarea class="proofread-en proofread-textarea" rows="2"
+                       placeholder="English sentence" data-type="${type}" data-idx="${idx}"
+                       onchange="ImageOCR.onEnglishEdit(this)" onblur="ImageOCR.onEnglishEdit(this)"
+                       oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'">${escapeHtml(item.en)}</textarea>
+                    <textarea class="proofread-cn proofread-textarea" rows="1"
+                       placeholder="中文翻译" data-type="${type}" data-idx="${idx}"
+                       oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'">${escapeHtml(item.cn)}</textarea>
+                </div>
+                <button class="btn-icon btn-delete" onclick="ImageOCR.removeItem('${type}', ${idx})" title="删除">✕</button>
+            </div>`;
+        }
+        return `<div class="proofread-item" data-idx="${idx}">
+            <span class="proofread-num">${idx + 1}.</span>
+            <input type="text" class="proofread-en" value="${escapeHtml(item.en)}" 
+                   placeholder="English" data-type="${type}" data-idx="${idx}"
+                   onchange="ImageOCR.onEnglishEdit(this)" onblur="ImageOCR.onEnglishEdit(this)">
+            <input type="text" class="proofread-cn" value="${escapeHtml(item.cn)}" 
+                   placeholder="中文释义(可选)" data-type="${type}" data-idx="${idx}">
+            <button class="btn-icon btn-delete" onclick="ImageOCR.removeItem('${type}', ${idx})" title="删除">✕</button>
+        </div>`;
+    }
+
+    // Auto-translate when English input is edited
+    function onEnglishEdit(inputEl) {
+        const type = inputEl.dataset.type;
+        const idx = parseInt(inputEl.dataset.idx);
+        const newText = inputEl.value.trim();
+
+        if (!recognizedData[type] || !recognizedData[type][idx]) return;
+
+        // Check if text actually changed
+        if (recognizedData[type][idx].en === newText) return;
+
+        // Update recognizedData
+        recognizedData[type][idx].en = newText;
+
+        // Auto-translate and ALWAYS update Chinese field
+        const cnInput = inputEl.parentElement.querySelector('.proofread-cn');
+        if (cnInput && newText) {
+            const translation = autoTranslate(newText);
+            cnInput.value = translation; // Always update, even if empty
+            recognizedData[type][idx].cn = translation;
+        }
+    }
+
+    // Add a new empty item to a section
+    function addItem(type) {
+        recognizedData[type].push({ en: '', cn: '', difficulty: type === 'sentences' ? 3 : (type === 'phrases' ? 2 : 1) });
+        refreshSection(type);
+    }
+
+    // Remove an item from a section
+    function removeItem(type, idx) {
+        collectEdits(); // Save current edits first
+        recognizedData[type].splice(idx, 1);
+        refreshSection(type);
+    }
+
+    // Refresh a single section's HTML
+    function refreshSection(type) {
+        collectEdits(); // Collect any edits user made in other sections
+        const container = document.getElementById(`proofread-${type}`);
+        if (!container) return;
+        let html = '';
+        recognizedData[type].forEach((item, idx) => {
+            html += buildItemRow(type, idx, item);
+        });
+        container.innerHTML = html;
+        // Update count in header
+        const titleMap = { words: '📝 单词 Words', phrases: '📖 词组 Phrases', sentences: '💬 句子 Sentences' };
+        const section = container.closest('.proofread-section');
+        if (section) {
+            section.querySelector('h4').textContent = `${titleMap[type]} (${recognizedData[type].length})`;
+        }
+    }
+
+    // Collect all edits from the proofreading UI into recognizedData
+    function collectEdits() {
+        // Unit name
+        const nameInput = document.getElementById('proofread-unit-name');
+        if (nameInput) {
+            recognizedData.unitName = nameInput.value.trim();
+        }
+
+        // Collect items from each section
+        ['words', 'phrases', 'sentences'].forEach(type => {
+            const inputs = document.querySelectorAll(`.proofread-en[data-type="${type}"]`);
+            const cnInputs = document.querySelectorAll(`.proofread-cn[data-type="${type}"]`);
+            inputs.forEach((input, idx) => {
+                if (recognizedData[type][idx]) {
+                    recognizedData[type][idx].en = input.value.trim();
+                }
+            });
+            cnInputs.forEach((input, idx) => {
+                if (recognizedData[type][idx]) {
+                    recognizedData[type][idx].cn = input.value.trim();
+                }
+            });
+        });
+
+        // Remove empty items
+        ['words', 'phrases', 'sentences'].forEach(type => {
+            recognizedData[type] = recognizedData[type].filter(item => item.en.length > 0);
+        });
+    }
+
+    // ========== SAVE / LOAD UNITS ==========
+    const STORAGE_KEY = 'typing_game_custom_units';
+
+    function getSavedUnits() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            return raw ? JSON.parse(raw) : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function saveSavedUnits(units) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(units));
+    }
+
+    // Save current unit to localStorage
+    function saveUnit() {
+        collectEdits();
+
+        const unitName = recognizedData.unitName || '未命名单元 Unnamed Unit';
+        const totalItems = recognizedData.words.length + recognizedData.phrases.length + recognizedData.sentences.length;
+
+        if (totalItems === 0) {
+            alert('没有内容可保存 No content to save');
+            return;
+        }
+
+        const unit = {
+            id: 'custom_' + Date.now(),
+            name: unitName,
+            createdAt: new Date().toISOString(),
+            words: [...recognizedData.words],
+            phrases: [...recognizedData.phrases],
+            sentences: [...recognizedData.sentences]
+        };
+
+        const units = getSavedUnits();
+
+        // If we're editing an existing unit, overwrite it directly
+        if (recognizedData._editingIdx !== undefined && recognizedData._editingIdx !== null) {
+            const editIdx = recognizedData._editingIdx;
+            if (editIdx >= 0 && editIdx < units.length) {
+                unit.id = units[editIdx].id; // Keep original ID
+                unit.createdAt = units[editIdx].createdAt; // Keep original date
+                unit.updatedAt = new Date().toISOString();
+                units[editIdx] = unit;
+            } else {
+                units.push(unit);
+            }
+            recognizedData._editingIdx = null; // Clear editing state
+        } else {
+            // Check if unit with same name exists, ask to overwrite
+            const existingIdx = units.findIndex(u => u.name === unitName);
+            if (existingIdx >= 0) {
+                if (!confirm(`"${unitName}" 已存在，是否覆盖？\n"${unitName}" already exists. Overwrite?`)) {
+                    return;
+                }
+                units[existingIdx] = unit;
+            } else {
+                units.push(unit);
+            }
+        }
+
+        saveSavedUnits(units);
+        renderSavedUnits();
+
+        alert(`✅ 已保存 "${unitName}"\n单词: ${unit.words.length} | 词组: ${unit.phrases.length} | 句子: ${unit.sentences.length}\n\nSaved! Words: ${unit.words.length} | Phrases: ${unit.phrases.length} | Sentences: ${unit.sentences.length}`);
+    }
+
+    // Render the list of saved custom units
+    function renderSavedUnits() {
+        const container = document.getElementById('saved-units-list');
+        if (!container) return;
+
+        const units = getSavedUnits();
+        if (units.length === 0) {
+            container.innerHTML = '<p class="empty-hint">暂无已保存的单元 No saved units yet</p>';
+            return;
+        }
+
+        let html = '';
+        units.forEach((unit, idx) => {
+            const date = new Date(unit.createdAt).toLocaleDateString('zh-CN');
+            const total = (unit.words || []).length + (unit.phrases || []).length + (unit.sentences || []).length;
+            html += `<div class="saved-unit-card">
+                <div class="saved-unit-info">
+                    <h4>${escapeHtml(unit.name)}</h4>
+                    <p>📅 ${date} | 📝 ${(unit.words||[]).length}词 + ${(unit.phrases||[]).length}短语 + ${(unit.sentences||[]).length}句子 = ${total}项</p>
+                </div>
+                <div class="saved-unit-actions">
+                    <button class="btn btn-small btn-primary" onclick="ImageOCR.practiceUnit(${idx}, 'words')">单词</button>
+                    <button class="btn btn-small btn-secondary" onclick="ImageOCR.practiceUnit(${idx}, 'phrases')">词组</button>
+                    <button class="btn btn-small btn-accent" onclick="ImageOCR.practiceUnit(${idx}, 'sentences')">句子</button>
+                    <button class="btn btn-small btn-warning" onclick="ImageOCR.practiceUnit(${idx}, 'listening')">听力</button>
+                    <button class="btn btn-small btn-outline" onclick="ImageOCR.practiceUnit(${idx}, 'all')">全部</button>
+                    <button class="btn btn-small btn-info" onclick="ImageOCR.editUnit(${idx})" title="修改编辑">✏️</button>
+                    <button class="btn btn-small btn-danger" onclick="ImageOCR.deleteUnit(${idx})" title="删除">🗑️</button>
+                </div>
+            </div>`;
+        });
+
+        container.innerHTML = html;
+    }
+
+    // Practice a saved unit
+    function practiceUnit(unitIdx, type) {
+        const units = getSavedUnits();
+        const unit = units[unitIdx];
+        if (!unit) return;
+
+        let items = [];
+
+        if (type === 'words' || type === 'all' || type === 'listening') {
+            (unit.words || []).forEach(w => {
+                items.push({ type: 'word', en: w.en, cn: w.cn || '(自定义)', difficulty: w.difficulty || 1 });
+            });
+        }
+        if (type === 'phrases' || type === 'all' || type === 'listening') {
+            (unit.phrases || []).forEach(p => {
+                items.push({ type: 'phrase', en: p.en, cn: p.cn || '(自定义)', difficulty: p.difficulty || 2 });
+            });
+        }
+        if (type === 'sentences' || type === 'all') {
+            (unit.sentences || []).forEach(s => {
+                items.push({ type: 'sentence', en: s.en, cn: s.cn || '(自定义)', difficulty: s.difficulty || 3 });
+            });
+        }
+
+        if (items.length === 0) {
+            alert('该类别没有内容 No content in this category');
+            return;
+        }
+
+        // Shuffle
+        for (let i = items.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [items[i], items[j]] = [items[j], items[i]];
+        }
+
+        Game.startCustomPractice(items, type === 'listening' ? 'listening' : 'mixed');
+    }
+
+    // Delete a saved unit
+    function deleteUnit(unitIdx) {
+        const units = getSavedUnits();
+        const unit = units[unitIdx];
+        if (!unit) return;
+        if (!confirm(`确定删除 "${unit.name}"？\nDelete "${unit.name}"?`)) return;
+        units.splice(unitIdx, 1);
+        saveSavedUnits(units);
+        renderSavedUnits();
+    }
+
+    // Edit a saved unit - load it into proofreading UI
+    function editUnit(unitIdx) {
+        const units = getSavedUnits();
+        const unit = units[unitIdx];
+        if (!unit) return;
+
+        // Load unit data into recognizedData
+        recognizedData.unitName = unit.name;
+        recognizedData.words = (unit.words || []).map(w => ({ en: w.en, cn: w.cn || '' }));
+        recognizedData.phrases = (unit.phrases || []).map(p => ({ en: p.en, cn: p.cn || '' }));
+        recognizedData.sentences = (unit.sentences || []).map(s => ({ en: s.en, cn: s.cn || '' }));
+
+        // Store which unit we're editing so save overwrites it
+        recognizedData._editingIdx = unitIdx;
+
+        // Show the proofreading UI
+        showProofreadUI();
+
+        // Scroll to the proofreading area
+        const proofArea = document.getElementById('proofread-results');
+        if (proofArea) proofArea.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // Start practice directly from proofreading (without saving)
+    function startPracticeFromProofread(type) {
+        collectEdits();
+        startPractice(type);
+    }
+
+    // Start practice with current recognizedData
+    function startPractice(type) {
+        let items = [];
+
+        if (type === 'words' || type === 'all' || type === 'listening') {
+            recognizedData.words.forEach(w => {
+                items.push({ type: 'word', en: w.en, cn: w.cn || '(图片识别)', difficulty: w.difficulty || 1 });
+            });
+        }
+        if (type === 'phrases' || type === 'all' || type === 'listening') {
+            recognizedData.phrases.forEach(p => {
+                items.push({ type: 'phrase', en: p.en, cn: p.cn || '(图片识别)', difficulty: p.difficulty || 2 });
+            });
+        }
+        if (type === 'sentences' || type === 'all') {
+            recognizedData.sentences.forEach(s => {
+                items.push({ type: 'sentence', en: s.en, cn: s.cn || '(图片识别)', difficulty: s.difficulty || 3 });
+            });
+        }
+
+        if (items.length === 0) {
+            alert('没有可用的练习内容 No items available for practice');
+            return;
+        }
+
+        // Shuffle
+        for (let i = items.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [items[i], items[j]] = [items[j], items[i]];
+        }
+
+        Game.startCustomPractice(items, type === 'listening' ? 'listening' : 'mixed');
+    }
+
+    // Clear uploaded image and results
+    function clearImage() {
+        document.getElementById('upload-preview').style.display = 'none';
+        document.getElementById('upload-area').style.display = 'block';
+        document.getElementById('upload-progress').style.display = 'none';
+        document.getElementById('upload-results').style.display = 'none';
+        document.getElementById('upload-input').value = '';
+        document.getElementById('preview-image').src = '';
+        recognizedData = { unitName: '', words: [], phrases: [], sentences: [], raw: '' };
+    }
+
+    // Utility: escape HTML
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    return {
+        init,
+        startPractice,
+        startPracticeFromProofread,
+        clearImage,
+        addItem,
+        removeItem,
+        onEnglishEdit,
+        saveUnit,
+        practiceUnit,
+        editUnit,
+        deleteUnit,
+        renderSavedUnits
+    };
+})();

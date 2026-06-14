@@ -1,0 +1,404 @@
+{
+  "modules": [
+    {
+      "id": "m1",
+      "name": "School Life",
+      "nameCN": "学校生活",
+      "icon": "🏫",
+      "words": [
+        { "en": "classroom", "cn": "教室", "difficulty": 1 },
+        { "en": "homework", "cn": "家庭作业", "difficulty": 1 },
+        { "en": "subject", "cn": "科目", "difficulty": 1 },
+        { "en": "geography", "cn": "地理", "difficulty": 2 },
+        { "en": "history", "cn": "历史", "difficulty": 1 },
+        { "en": "science", "cn": "科学", "difficulty": 1 },
+        { "en": "timetable", "cn": "课程表", "difficulty": 2 },
+        { "en": "library", "cn": "图书馆", "difficulty": 1 },
+        { "en": "playground", "cn": "操场", "difficulty": 2 },
+        { "en": "examination", "cn": "考试", "difficulty": 3 },
+        { "en": "textbook", "cn": "课本", "difficulty": 2 },
+        { "en": "blackboard", "cn": "黑板", "difficulty": 2 },
+        { "en": "student", "cn": "学生", "difficulty": 1 },
+        { "en": "teacher", "cn": "老师", "difficulty": 1 },
+        { "en": "dictionary", "cn": "字典", "difficulty": 2 }
+      ],
+      "phrases": [
+        { "en": "do homework", "cn": "做作业", "difficulty": 1 },
+        { "en": "have a lesson", "cn": "上课", "difficulty": 1 },
+        { "en": "after school", "cn": "放学后", "difficulty": 1 },
+        { "en": "school trip", "cn": "学校旅行", "difficulty": 2 },
+        { "en": "in the library", "cn": "在图书馆里", "difficulty": 1 },
+        { "en": "on the playground", "cn": "在操场上", "difficulty": 2 },
+        { "en": "study hard", "cn": "努力学习", "difficulty": 1 },
+        { "en": "take notes", "cn": "做笔记", "difficulty": 2 }
+      ],
+      "sentences": [
+        { "en": "What is your favourite subject?", "cn": "你最喜欢的科目是什么？", "difficulty": 1 },
+        { "en": "I have four lessons in the morning.", "cn": "我早上有四节课。", "difficulty": 2 },
+        { "en": "Our school library has many books.", "cn": "我们学校图书馆有很多书。", "difficulty": 2 },
+        { "en": "We do homework after school every day.", "cn": "我们每天放学后做作业。", "difficulty": 2 },
+        { "en": "My favourite subject is English.", "cn": "我最喜欢的科目是英语。", "difficulty": 1 }
+      ]
+    },
+    {
+      "id": "m2",
+      "name": "Food and Drink",
+      "nameCN": "食物与饮料",
+      "icon": "🍔",
+      "words": [
+        { "en": "breakfast", "cn": "早餐", "difficulty": 1 },
+        { "en": "lunch", "cn": "午餐", "difficulty": 1 },
+        { "en": "dinner", "cn": "晚餐", "difficulty": 1 },
+        { "en": "vegetable", "cn": "蔬菜", "difficulty": 2 },
+        { "en": "chocolate", "cn": "巧克力", "difficulty": 2 },
+        { "en": "hamburger", "cn": "汉堡包", "difficulty": 2 },
+        { "en": "sandwich", "cn": "三明治", "difficulty": 2 },
+        { "en": "noodles", "cn": "面条", "difficulty": 1 },
+        { "en": "juice", "cn": "果汁", "difficulty": 1 },
+        { "en": "delicious", "cn": "美味的", "difficulty": 2 },
+        { "en": "healthy", "cn": "健康的", "difficulty": 2 },
+        { "en": "restaurant", "cn": "餐馆", "difficulty": 3 },
+        { "en": "sugar", "cn": "糖", "difficulty": 1 },
+        { "en": "chicken", "cn": "鸡肉", "difficulty": 1 },
+        { "en": "tomato", "cn": "番茄", "difficulty": 2 }
+      ],
+      "phrases": [
+        { "en": "have breakfast", "cn": "吃早餐", "difficulty": 1 },
+        { "en": "a cup of tea", "cn": "一杯茶", "difficulty": 1 },
+        { "en": "a glass of milk", "cn": "一杯牛奶", "difficulty": 1 },
+        { "en": "fast food", "cn": "快餐", "difficulty": 1 },
+        { "en": "too much sugar", "cn": "太多糖", "difficulty": 2 },
+        { "en": "eat healthy food", "cn": "吃健康食物", "difficulty": 2 },
+        { "en": "would like to", "cn": "想要", "difficulty": 1 },
+        { "en": "help yourself", "cn": "随便吃", "difficulty": 2 }
+      ],
+      "sentences": [
+        { "en": "What would you like for lunch?", "cn": "午餐你想吃什么？", "difficulty": 1 },
+        { "en": "I usually have eggs and milk for breakfast.", "cn": "我早餐通常吃鸡蛋和牛奶。", "difficulty": 2 },
+        { "en": "Eating too much candy is bad for your teeth.", "cn": "吃太多糖果对牙齿不好。", "difficulty": 3 },
+        { "en": "Would you like something to drink?", "cn": "你想喝点什么吗？", "difficulty": 2 },
+        { "en": "My favourite food is noodles.", "cn": "我最喜欢的食物是面条。", "difficulty": 1 }
+      ]
+    },
+    {
+      "id": "m3",
+      "name": "Hobbies",
+      "nameCN": "兴趣爱好",
+      "icon": "🎨",
+      "words": [
+        { "en": "painting", "cn": "绘画", "difficulty": 1 },
+        { "en": "dancing", "cn": "跳舞", "difficulty": 1 },
+        { "en": "swimming", "cn": "游泳", "difficulty": 1 },
+        { "en": "collecting", "cn": "收集", "difficulty": 2 },
+        { "en": "photography", "cn": "摄影", "difficulty": 3 },
+        { "en": "guitar", "cn": "吉他", "difficulty": 2 },
+        { "en": "violin", "cn": "小提琴", "difficulty": 2 },
+        { "en": "chess", "cn": "国际象棋", "difficulty": 1 },
+        { "en": "football", "cn": "足球", "difficulty": 1 },
+        { "en": "badminton", "cn": "羽毛球", "difficulty": 2 },
+        { "en": "drawing", "cn": "画画", "difficulty": 1 },
+        { "en": "singing", "cn": "唱歌", "difficulty": 1 },
+        { "en": "hobby", "cn": "爱好", "difficulty": 1 },
+        { "en": "interested", "cn": "感兴趣的", "difficulty": 2 },
+        { "en": "enjoyable", "cn": "令人愉快的", "difficulty": 3 }
+      ],
+      "phrases": [
+        { "en": "be good at", "cn": "擅长", "difficulty": 1 },
+        { "en": "be interested in", "cn": "对…感兴趣", "difficulty": 2 },
+        { "en": "in my free time", "cn": "在我空闲时间", "difficulty": 2 },
+        { "en": "play the piano", "cn": "弹钢琴", "difficulty": 1 },
+        { "en": "go swimming", "cn": "去游泳", "difficulty": 1 },
+        { "en": "take photos", "cn": "拍照", "difficulty": 1 },
+        { "en": "listen to music", "cn": "听音乐", "difficulty": 1 },
+        { "en": "enjoy doing", "cn": "喜欢做", "difficulty": 2 }
+      ],
+      "sentences": [
+        { "en": "What is your hobby?", "cn": "你的爱好是什么？", "difficulty": 1 },
+        { "en": "I am good at playing basketball.", "cn": "我擅长打篮球。", "difficulty": 2 },
+        { "en": "She enjoys listening to music in her free time.", "cn": "她喜欢在空闲时间听音乐。", "difficulty": 2 },
+        { "en": "My brother is interested in collecting stamps.", "cn": "我哥哥对集邮感兴趣。", "difficulty": 3 },
+        { "en": "Playing chess makes me happy.", "cn": "下棋让我开心。", "difficulty": 2 }
+      ]
+    },
+    {
+      "id": "m4",
+      "name": "Daily Routines",
+      "nameCN": "日常生活",
+      "icon": "⏰",
+      "words": [
+        { "en": "morning", "cn": "早晨", "difficulty": 1 },
+        { "en": "afternoon", "cn": "下午", "difficulty": 1 },
+        { "en": "evening", "cn": "晚上", "difficulty": 1 },
+        { "en": "always", "cn": "总是", "difficulty": 1 },
+        { "en": "usually", "cn": "通常", "difficulty": 1 },
+        { "en": "sometimes", "cn": "有时", "difficulty": 1 },
+        { "en": "never", "cn": "从不", "difficulty": 1 },
+        { "en": "exercise", "cn": "锻炼", "difficulty": 2 },
+        { "en": "breakfast", "cn": "早餐", "difficulty": 1 },
+        { "en": "shower", "cn": "淋浴", "difficulty": 2 },
+        { "en": "toothbrush", "cn": "牙刷", "difficulty": 2 },
+        { "en": "weekend", "cn": "周末", "difficulty": 1 },
+        { "en": "routine", "cn": "日常", "difficulty": 2 },
+        { "en": "schedule", "cn": "日程", "difficulty": 2 },
+        { "en": "o'clock", "cn": "…点钟", "difficulty": 1 }
+      ],
+      "phrases": [
+        { "en": "get up", "cn": "起床", "difficulty": 1 },
+        { "en": "go to bed", "cn": "上床睡觉", "difficulty": 1 },
+        { "en": "brush teeth", "cn": "刷牙", "difficulty": 1 },
+        { "en": "take a shower", "cn": "洗澡", "difficulty": 1 },
+        { "en": "go to school", "cn": "去上学", "difficulty": 1 },
+        { "en": "do morning exercises", "cn": "做早操", "difficulty": 2 },
+        { "en": "watch TV", "cn": "看电视", "difficulty": 1 },
+        { "en": "at half past six", "cn": "在六点半", "difficulty": 2 }
+      ],
+      "sentences": [
+        { "en": "I usually get up at seven o'clock.", "cn": "我通常七点起床。", "difficulty": 1 },
+        { "en": "She always brushes her teeth before bed.", "cn": "她总是在睡前刷牙。", "difficulty": 2 },
+        { "en": "What time do you go to school?", "cn": "你几点去上学？", "difficulty": 1 },
+        { "en": "On weekends I sometimes play football.", "cn": "周末我有时踢足球。", "difficulty": 2 },
+        { "en": "We never have lessons on Sunday.", "cn": "我们星期天从不上课。", "difficulty": 2 }
+      ]
+    },
+    {
+      "id": "m5",
+      "name": "Travel",
+      "nameCN": "旅行",
+      "icon": "✈️",
+      "words": [
+        { "en": "airport", "cn": "机场", "difficulty": 2 },
+        { "en": "ticket", "cn": "票", "difficulty": 1 },
+        { "en": "passport", "cn": "护照", "difficulty": 2 },
+        { "en": "suitcase", "cn": "行李箱", "difficulty": 2 },
+        { "en": "journey", "cn": "旅程", "difficulty": 2 },
+        { "en": "tourist", "cn": "游客", "difficulty": 2 },
+        { "en": "museum", "cn": "博物馆", "difficulty": 2 },
+        { "en": "bridge", "cn": "桥", "difficulty": 1 },
+        { "en": "mountain", "cn": "山", "difficulty": 1 },
+        { "en": "beach", "cn": "海滩", "difficulty": 1 },
+        { "en": "holiday", "cn": "假期", "difficulty": 1 },
+        { "en": "famous", "cn": "著名的", "difficulty": 2 },
+        { "en": "exciting", "cn": "令人兴奋的", "difficulty": 2 },
+        { "en": "beautiful", "cn": "美丽的", "difficulty": 1 },
+        { "en": "island", "cn": "岛", "difficulty": 2 }
+      ],
+      "phrases": [
+        { "en": "go on holiday", "cn": "去度假", "difficulty": 1 },
+        { "en": "by plane", "cn": "乘飞机", "difficulty": 1 },
+        { "en": "take photos", "cn": "拍照", "difficulty": 1 },
+        { "en": "look forward to", "cn": "期待", "difficulty": 2 },
+        { "en": "travel around", "cn": "到处旅行", "difficulty": 2 },
+        { "en": "have a good time", "cn": "玩得开心", "difficulty": 1 },
+        { "en": "get to the airport", "cn": "到达机场", "difficulty": 2 },
+        { "en": "plan a trip", "cn": "计划旅行", "difficulty": 2 }
+      ],
+      "sentences": [
+        { "en": "Where did you go on holiday?", "cn": "你假期去了哪里？", "difficulty": 1 },
+        { "en": "We are going to travel by train.", "cn": "我们打算坐火车旅行。", "difficulty": 2 },
+        { "en": "The Great Wall is very famous.", "cn": "长城非常著名。", "difficulty": 1 },
+        { "en": "I am looking forward to the school trip.", "cn": "我期待学校旅行。", "difficulty": 2 },
+        { "en": "She took many beautiful photos on the beach.", "cn": "她在海滩拍了很多漂亮照片。", "difficulty": 3 }
+      ]
+    },
+    {
+      "id": "m6",
+      "name": "Shopping",
+      "nameCN": "购物",
+      "icon": "🛒",
+      "words": [
+        { "en": "market", "cn": "市场", "difficulty": 1 },
+        { "en": "price", "cn": "价格", "difficulty": 1 },
+        { "en": "cheap", "cn": "便宜的", "difficulty": 1 },
+        { "en": "expensive", "cn": "贵的", "difficulty": 2 },
+        { "en": "customer", "cn": "顾客", "difficulty": 2 },
+        { "en": "size", "cn": "尺码", "difficulty": 1 },
+        { "en": "colour", "cn": "颜色", "difficulty": 1 },
+        { "en": "receipt", "cn": "收据", "difficulty": 3 },
+        { "en": "discount", "cn": "折扣", "difficulty": 2 },
+        { "en": "fashion", "cn": "时尚", "difficulty": 2 },
+        { "en": "choose", "cn": "选择", "difficulty": 1 },
+        { "en": "pay", "cn": "付款", "difficulty": 1 },
+        { "en": "change", "cn": "零钱", "difficulty": 1 },
+        { "en": "online", "cn": "在线的", "difficulty": 1 },
+        { "en": "shopping", "cn": "购物", "difficulty": 1 }
+      ],
+      "phrases": [
+        { "en": "go shopping", "cn": "去购物", "difficulty": 1 },
+        { "en": "how much", "cn": "多少钱", "difficulty": 1 },
+        { "en": "try on", "cn": "试穿", "difficulty": 1 },
+        { "en": "too expensive", "cn": "太贵了", "difficulty": 1 },
+        { "en": "pay for", "cn": "付款", "difficulty": 1 },
+        { "en": "on sale", "cn": "打折", "difficulty": 1 },
+        { "en": "shopping list", "cn": "购物清单", "difficulty": 2 },
+        { "en": "wait in line", "cn": "排队等候", "difficulty": 2 }
+      ],
+      "sentences": [
+        { "en": "How much is this T-shirt?", "cn": "这件T恤多少钱？", "difficulty": 1 },
+        { "en": "Can I try on this pair of shoes?", "cn": "我能试穿这双鞋吗？", "difficulty": 2 },
+        { "en": "The red dress is more expensive than the blue one.", "cn": "红色连衣裙比蓝色的贵。", "difficulty": 3 },
+        { "en": "I want to buy a birthday present for my mum.", "cn": "我想给妈妈买生日礼物。", "difficulty": 2 },
+        { "en": "Do you have a smaller size?", "cn": "你有小一号的吗？", "difficulty": 2 }
+      ]
+    },
+    {
+      "id": "m7",
+      "name": "Weather",
+      "nameCN": "天气",
+      "icon": "🌤️",
+      "words": [
+        { "en": "sunny", "cn": "晴朗的", "difficulty": 1 },
+        { "en": "cloudy", "cn": "多云的", "difficulty": 1 },
+        { "en": "rainy", "cn": "下雨的", "difficulty": 1 },
+        { "en": "windy", "cn": "有风的", "difficulty": 1 },
+        { "en": "snowy", "cn": "下雪的", "difficulty": 1 },
+        { "en": "temperature", "cn": "温度", "difficulty": 3 },
+        { "en": "umbrella", "cn": "雨伞", "difficulty": 2 },
+        { "en": "forecast", "cn": "预报", "difficulty": 3 },
+        { "en": "storm", "cn": "暴风雨", "difficulty": 2 },
+        { "en": "degree", "cn": "度", "difficulty": 2 },
+        { "en": "season", "cn": "季节", "difficulty": 1 },
+        { "en": "spring", "cn": "春天", "difficulty": 1 },
+        { "en": "summer", "cn": "夏天", "difficulty": 1 },
+        { "en": "autumn", "cn": "秋天", "difficulty": 1 },
+        { "en": "winter", "cn": "冬天", "difficulty": 1 }
+      ],
+      "phrases": [
+        { "en": "what's the weather like", "cn": "天气怎么样", "difficulty": 1 },
+        { "en": "in winter", "cn": "在冬天", "difficulty": 1 },
+        { "en": "take an umbrella", "cn": "带把伞", "difficulty": 1 },
+        { "en": "weather forecast", "cn": "天气预报", "difficulty": 2 },
+        { "en": "get warmer", "cn": "变暖和", "difficulty": 2 },
+        { "en": "heavy rain", "cn": "大雨", "difficulty": 2 },
+        { "en": "bad weather", "cn": "坏天气", "difficulty": 1 },
+        { "en": "clear sky", "cn": "晴空", "difficulty": 1 }
+      ],
+      "sentences": [
+        { "en": "What's the weather like today?", "cn": "今天天气怎么样？", "difficulty": 1 },
+        { "en": "It will be sunny tomorrow.", "cn": "明天将会是晴天。", "difficulty": 1 },
+        { "en": "You should take an umbrella because it might rain.", "cn": "你应该带把伞因为可能下雨。", "difficulty": 3 },
+        { "en": "Spring is the best season in our city.", "cn": "春天是我们城市最好的季节。", "difficulty": 2 },
+        { "en": "The temperature is about twenty degrees.", "cn": "温度大约二十度。", "difficulty": 2 }
+      ]
+    },
+    {
+      "id": "m8",
+      "name": "Festivals",
+      "nameCN": "节日",
+      "icon": "🎉",
+      "words": [
+        { "en": "festival", "cn": "节日", "difficulty": 1 },
+        { "en": "celebration", "cn": "庆祝", "difficulty": 3 },
+        { "en": "traditional", "cn": "传统的", "difficulty": 3 },
+        { "en": "lantern", "cn": "灯笼", "difficulty": 2 },
+        { "en": "fireworks", "cn": "烟花", "difficulty": 2 },
+        { "en": "dumpling", "cn": "饺子", "difficulty": 2 },
+        { "en": "dragon", "cn": "龙", "difficulty": 1 },
+        { "en": "Christmas", "cn": "圣诞节", "difficulty": 2 },
+        { "en": "present", "cn": "礼物", "difficulty": 1 },
+        { "en": "decorate", "cn": "装饰", "difficulty": 2 },
+        { "en": "celebrate", "cn": "庆祝", "difficulty": 2 },
+        { "en": "lucky", "cn": "幸运的", "difficulty": 1 },
+        { "en": "greeting", "cn": "问候", "difficulty": 2 },
+        { "en": "envelope", "cn": "信封", "difficulty": 2 },
+        { "en": "midnight", "cn": "午夜", "difficulty": 2 }
+      ],
+      "phrases": [
+        { "en": "Spring Festival", "cn": "春节", "difficulty": 1 },
+        { "en": "Mid-Autumn Festival", "cn": "中秋节", "difficulty": 2 },
+        { "en": "red envelope", "cn": "红包", "difficulty": 1 },
+        { "en": "dragon dance", "cn": "舞龙", "difficulty": 2 },
+        { "en": "family dinner", "cn": "家庭聚餐", "difficulty": 1 },
+        { "en": "get together", "cn": "团聚", "difficulty": 1 },
+        { "en": "make dumplings", "cn": "包饺子", "difficulty": 1 },
+        { "en": "good luck", "cn": "好运", "difficulty": 1 }
+      ],
+      "sentences": [
+        { "en": "Spring Festival is the most important festival in China.", "cn": "春节是中国最重要的节日。", "difficulty": 2 },
+        { "en": "We eat dumplings and watch fireworks.", "cn": "我们吃饺子看烟花。", "difficulty": 2 },
+        { "en": "Children get red envelopes from their parents.", "cn": "孩子们从父母那里得到红包。", "difficulty": 2 },
+        { "en": "People decorate their houses for the festival.", "cn": "人们为节日装饰房子。", "difficulty": 2 },
+        { "en": "My family always gets together at Spring Festival.", "cn": "我的家人总是在春节团聚。", "difficulty": 2 }
+      ]
+    },
+    {
+      "id": "m9",
+      "name": "Health",
+      "nameCN": "健康",
+      "icon": "💪",
+      "words": [
+        { "en": "headache", "cn": "头痛", "difficulty": 2 },
+        { "en": "stomachache", "cn": "胃痛", "difficulty": 2 },
+        { "en": "toothache", "cn": "牙痛", "difficulty": 2 },
+        { "en": "medicine", "cn": "药", "difficulty": 2 },
+        { "en": "hospital", "cn": "医院", "difficulty": 2 },
+        { "en": "doctor", "cn": "医生", "difficulty": 1 },
+        { "en": "fever", "cn": "发烧", "difficulty": 2 },
+        { "en": "cough", "cn": "咳嗽", "difficulty": 2 },
+        { "en": "rest", "cn": "休息", "difficulty": 1 },
+        { "en": "sleep", "cn": "睡觉", "difficulty": 1 },
+        { "en": "healthy", "cn": "健康的", "difficulty": 1 },
+        { "en": "illness", "cn": "疾病", "difficulty": 2 },
+        { "en": "throat", "cn": "喉咙", "difficulty": 2 },
+        { "en": "tired", "cn": "累的", "difficulty": 1 },
+        { "en": "exercise", "cn": "锻炼", "difficulty": 2 }
+      ],
+      "phrases": [
+        { "en": "have a cold", "cn": "感冒", "difficulty": 1 },
+        { "en": "see a doctor", "cn": "看医生", "difficulty": 1 },
+        { "en": "take medicine", "cn": "吃药", "difficulty": 1 },
+        { "en": "have a rest", "cn": "休息", "difficulty": 1 },
+        { "en": "feel better", "cn": "感觉好些", "difficulty": 1 },
+        { "en": "stay healthy", "cn": "保持健康", "difficulty": 1 },
+        { "en": "sore throat", "cn": "喉咙痛", "difficulty": 2 },
+        { "en": "get enough sleep", "cn": "充足睡眠", "difficulty": 2 }
+      ],
+      "sentences": [
+        { "en": "I have a headache and a fever.", "cn": "我头痛还发烧。", "difficulty": 2 },
+        { "en": "You should see a doctor.", "cn": "你应该去看医生。", "difficulty": 1 },
+        { "en": "Take this medicine three times a day.", "cn": "这个药一天吃三次。", "difficulty": 2 },
+        { "en": "Eating fruit and vegetables keeps you healthy.", "cn": "吃水果和蔬菜让你健康。", "difficulty": 2 },
+        { "en": "You need to drink more water and have a rest.", "cn": "你需要多喝水休息一下。", "difficulty": 2 }
+      ]
+    },
+    {
+      "id": "m10",
+      "name": "Animals and Nature",
+      "nameCN": "动物与自然",
+      "icon": "🐼",
+      "words": [
+        { "en": "elephant", "cn": "大象", "difficulty": 2 },
+        { "en": "giraffe", "cn": "长颈鹿", "difficulty": 3 },
+        { "en": "dolphin", "cn": "海豚", "difficulty": 2 },
+        { "en": "panda", "cn": "熊猫", "difficulty": 1 },
+        { "en": "kangaroo", "cn": "袋鼠", "difficulty": 3 },
+        { "en": "endangered", "cn": "濒危的", "difficulty": 3 },
+        { "en": "forest", "cn": "森林", "difficulty": 1 },
+        { "en": "ocean", "cn": "海洋", "difficulty": 1 },
+        { "en": "protect", "cn": "保护", "difficulty": 2 },
+        { "en": "wild", "cn": "野生的", "difficulty": 1 },
+        { "en": "snake", "cn": "蛇", "difficulty": 1 },
+        { "en": "whale", "cn": "鲸鱼", "difficulty": 2 },
+        { "en": "butterfly", "cn": "蝴蝶", "difficulty": 2 },
+        { "en": "feather", "cn": "羽毛", "difficulty": 2 },
+        { "en": "bamboo", "cn": "竹子", "difficulty": 2 }
+      ],
+      "phrases": [
+        { "en": "in the wild", "cn": "在野外", "difficulty": 1 },
+        { "en": "endangered animals", "cn": "濒危动物", "difficulty": 2 },
+        { "en": "protect the environment", "cn": "保护环境", "difficulty": 2 },
+        { "en": "live in the forest", "cn": "住在森林里", "difficulty": 1 },
+        { "en": "at the zoo", "cn": "在动物园", "difficulty": 1 },
+        { "en": "all over the world", "cn": "全世界", "difficulty": 2 },
+        { "en": "take care of", "cn": "照顾", "difficulty": 2 },
+        { "en": "in danger", "cn": "处于危险中", "difficulty": 2 }
+      ],
+      "sentences": [
+        { "en": "Pandas live in the mountains of China.", "cn": "熊猫生活在中国的山里。", "difficulty": 2 },
+        { "en": "We should protect endangered animals.", "cn": "我们应该保护濒危动物。", "difficulty": 2 },
+        { "en": "Elephants are the largest animals on land.", "cn": "大象是陆地上最大的动物。", "difficulty": 2 },
+        { "en": "Many animals are in danger because of pollution.", "cn": "很多动物因为污染而处于危险中。", "difficulty": 3 },
+        { "en": "My favourite animal is the dolphin.", "cn": "我最喜欢的动物是海豚。", "difficulty": 1 }
+      ]
+    }
+  ]
+}
