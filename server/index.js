@@ -18,6 +18,7 @@ app.use('/api/units', require('./routes/units'));
 app.use('/api/me', require('./routes/me'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/translate', require('./routes/translate'));
+app.use('/api/practice', require('./routes/practice'));
 
 // Fallback to index.html for SPA
 app.get('*', (req, res) => {

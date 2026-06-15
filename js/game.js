@@ -564,8 +564,24 @@ const Game = (() => {
         if (state.coinsEarned > 0) Storage.addCoins(state.coinsEarned);
         if (stars > 0) Storage.addStars(stars);
 
-        if (state.isLevelMode && stars > 0) {
+        if (state.isLevelMode && stars > 0 && !state.grade) {
             Storage.saveLevelResult(state.level, state.score, stars);
+        }
+        // Phase 2: per-grade unlock & stars (separate from legacy levelStars)
+        if (state.isLevelMode && state.grade && stars > 0) {
+            try {
+                const gKey = 'g' + state.grade;
+                const unlockKey = 'gradeLevelsUnlocked_' + gKey;
+                const starsKey = 'gradeLevelStars_' + gKey;
+                const cur = parseInt(localStorage.getItem(unlockKey), 10) || 1;
+                if (state.level + 1 > cur && state.level < 5) {
+                    localStorage.setItem(unlockKey, String(state.level + 1));
+                }
+                let sm = {};
+                try { sm = JSON.parse(localStorage.getItem(starsKey) || '{}'); } catch (e) {}
+                sm[state.level] = Math.max(sm[state.level] || 0, stars);
+                localStorage.setItem(starsKey, JSON.stringify(sm));
+            } catch (e) { /* ignore */ }
         }
 
         // Add to leaderboard
@@ -577,8 +593,11 @@ const Game = (() => {
         try {
             const durationMs = Math.max(0, Date.now() - (state.startTime || Date.now()));
             const refId = state.isLevelMode ? state.level : (state.currentModule || 0);
+            const kind = state.grade
+                ? (state.isLevelMode ? `grade${state.grade}-level` : `grade${state.grade}-random`)
+                : (state.isLevelMode ? 'level' : 'module');
             Storage.reportPractice({
-                kind: state.isLevelMode ? 'level' : 'module',
+                kind,
                 ref_id: String(refId == null ? '' : refId),
                 score: state.score,
                 stars: stars,
@@ -712,6 +731,12 @@ const Game = (() => {
 
     // Next level
     function nextLevel() {
+        if (state.grade) {
+            if (state.level < GRADE_LEVELS.length) {
+                startGradeLevel(state.grade, state.level + 1);
+            }
+            return;
+        }
         if (state.level < LEVELS.length) {
             startLevel(state.level + 1);
         }
@@ -719,7 +744,11 @@ const Game = (() => {
 
     // Retry current level
     function retryLevel() {
-        if (state.isLevelMode) {
+        if (state.grade && state.isLevelMode) {
+            startGradeLevel(state.grade, state.level);
+        } else if (state.grade) {
+            startGradeRandom(state.grade, state.totalItems);
+        } else if (state.isLevelMode) {
             startLevel(state.level);
         } else {
             startModulePractice(state.mode);
@@ -756,10 +785,88 @@ const Game = (() => {
     // Expose level definitions
     function getLevels() { return LEVELS; }
 
+    // ====== Phase 2: Grade-based difficulty modes ======
+    // 5 dynamic levels per grade. Each fetches random words from /api/practice/random.
+    const GRADE_LEVELS = [
+        { id: 1, count: 10, passScore: 60, name: '入门', desc: '10 个单词热身' },
+        { id: 2, count: 15, passScore: 65, name: '进阶', desc: '15 个单词巩固' },
+        { id: 3, count: 20, passScore: 70, name: '熟练', desc: '20 个单词冲刺' },
+        { id: 4, count: 25, passScore: 75, name: '挑战', desc: '25 个单词挑战' },
+        { id: 5, count: 30, passScore: 80, name: '终极', desc: '30 个单词大考' }
+    ];
+    function getGradeLevels() { return GRADE_LEVELS; }
+
+    async function fetchRandomWords(grade, count) {
+        try {
+            const r = await fetch(`/api/practice/random?level=${grade}&count=${count}`);
+            if (!r.ok) throw new Error('fetch failed: ' + r.status);
+            const data = await r.json();
+            return data.items || [];
+        } catch (e) {
+            console.error('[fetchRandomWords]', e);
+            alert('词库加载失败，请稍后再试');
+            return [];
+        }
+    }
+
+    function buildState(items, opts) {
+        return {
+            mode: opts.mode || 'words',
+            level: opts.level || 0,
+            items: items,
+            currentIndex: 0,
+            score: 0,
+            combo: 0,
+            maxCombo: 0,
+            lives: opts.lives || 99,
+            maxLives: opts.lives || 99,
+            correct: 0,
+            wrong: 0,
+            totalItems: items.length,
+            timer: null,
+            timeLeft: opts.timeLimit || 0,
+            timeTotal: opts.timeLimit || 0,
+            startTime: Date.now(),
+            isPaused: false,
+            isLevelMode: !!opts.isLevelMode,
+            currentModule: opts.currentModule || null,
+            coinsEarned: 0,
+            grade: opts.grade || null
+        };
+    }
+
+    // Start a grade-based level (闯关模式)
+    async function startGradeLevel(grade, levelId) {
+        const def = GRADE_LEVELS.find(l => l.id === levelId);
+        if (!def) return;
+        const items = await fetchRandomWords(grade, def.count);
+        if (items.length === 0) return;
+        state = buildState(items, {
+            mode: 'words', level: levelId, lives: 99, isLevelMode: true, grade
+        });
+        initGameUI();
+        startTimer();
+        showCurrentItem();
+    }
+
+    // Start grade-based module practice (模块练习)
+    async function startGradeRandom(grade, count) {
+        const items = await fetchRandomWords(grade, count || 15);
+        if (items.length === 0) return;
+        state = buildState(items, {
+            mode: 'words', level: 0, lives: 99, isLevelMode: false, grade
+        });
+        initGameUI();
+        startTimer();
+        showCurrentItem();
+    }
+
     return {
         startLevel,
         startModulePractice,
         startCustomPractice,
+        startGradeLevel,
+        startGradeRandom,
         submitAnswer,
         nextLevel,
         retryLevel,
@@ -768,6 +875,7 @@ const Game = (() => {
         quitGame,
         setCurrentModule,
         getLevels,
+        getGradeLevels,
         loadModuleData
     };
 })();

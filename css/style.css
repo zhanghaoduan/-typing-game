@@ -1558,3 +1558,88 @@ body {
 .profile-actions { display: flex; gap: 12px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
 
 .modal-actions { display: flex; gap: 12px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+
+/* ============================================
+   Phase 2: Grade picker & grade module cards
+   ============================================ */
+.grade-picker {
+    display: flex;
+    gap: 12px;
+    padding: 16px 0;
+    margin: 0 auto 8px;
+    max-width: 720px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+.grade-btn {
+    flex: 1 1 120px;
+    min-width: 100px;
+    max-width: 160px;
+    padding: 14px 10px;
+    border: 2px solid var(--border, #e5e7eb);
+    border-radius: 14px;
+    background: var(--bg-card, #fff);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.18s ease;
+    font-family: inherit;
+}
+.grade-btn:hover {
+    border-color: var(--primary);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(79, 70, 229, 0.12);
+}
+.grade-btn.active {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 8px 18px rgba(99, 102, 241, 0.35);
+}
+.grade-btn .grade-emoji { font-size: 28px; line-height: 1; }
+.grade-btn .grade-name { font-size: 16px; font-weight: 700; }
+.grade-btn .grade-name-en { font-size: 11px; opacity: 0.75; }
+.grade-btn.active .grade-name-en { opacity: 0.95; }
+
+.grade-hint {
+    text-align: center;
+    color: var(--text-light, #6b7280);
+    font-size: 14px;
+    margin: 4px auto 16px;
+}
+
+.module-card-grade {
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    border: none;
+}
+.module-card-grade h3 { color: #92400e; }
+
+.module-section-sep {
+    grid-column: 1 / -1;
+    text-align: center;
+    margin: 14px 0 4px;
+    color: var(--text-light, #6b7280);
+    font-size: 13px;
+    position: relative;
+}
+.module-section-sep span {
+    background: var(--bg, #f9fafb);
+    padding: 0 14px;
+    position: relative;
+    z-index: 1;
+}
+.module-section-sep::before {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; top: 50%;
+    height: 1px;
+    background: var(--border, #e5e7eb);
+}
+
+@media (max-width: 480px) {
+    .grade-btn { flex: 1 1 calc(50% - 12px); padding: 10px 6px; }
+    .grade-btn .grade-emoji { font-size: 22px; }
+    .grade-btn .grade-name { font-size: 14px; }
+}

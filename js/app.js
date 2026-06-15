@@ -68,58 +68,143 @@ const App = (() => {
         document.getElementById('home-streak').textContent = data.streak;
     }
 
-    // Render level selection
+    // ====== Phase 2: grade picker ======
+    const GRADES = [
+        { id: 1, nameCN: '小学', nameEN: 'Primary',     emoji: '🏫' },
+        { id: 2, nameCN: '初中', nameEN: 'Junior High', emoji: '📘' },
+        { id: 3, nameCN: '高中', nameEN: 'Senior High', emoji: '📗' },
+        { id: 4, nameCN: '大学', nameEN: 'University',  emoji: '🎓' }
+    ];
+
+    function getSelectedGrade() {
+        const v = parseInt(localStorage.getItem('selectedGrade'), 10);
+        return [1, 2, 3, 4].includes(v) ? v : 2;  // default 初中
+    }
+    function setSelectedGrade(g) {
+        localStorage.setItem('selectedGrade', String(g));
+    }
+
+    function renderGradePicker(containerId, onSelect) {
+        const el = document.getElementById(containerId);
+        if (!el) return;
+        const cur = getSelectedGrade();
+        el.innerHTML = GRADES.map(g => `
+            <button class="grade-btn ${g.id === cur ? 'active' : ''}" data-grade="${g.id}">
+                <span class="grade-emoji">${g.emoji}</span>
+                <span class="grade-name">${g.nameCN}</span>
+                <span class="grade-name-en">${g.nameEN}</span>
+            </button>
+        `).join('');
+        el.querySelectorAll('.grade-btn').forEach(btn => {
+            btn.onclick = () => {
+                const g = parseInt(btn.dataset.grade, 10);
+                setSelectedGrade(g);
+                el.querySelectorAll('.grade-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                if (onSelect) onSelect(g);
+            };
+        });
+    }
+
+    // Render level selection (Phase 2: per-grade)
     function renderLevels() {
+        renderGradePicker('levels-grade-picker', () => renderLevelsForGrade());
+        renderLevelsForGrade();
+    }
+
+    function renderLevelsForGrade() {
+        const grade = getSelectedGrade();
         const data = Storage.getData();
-        const levels = Game.getLevels();
+        const levels = Game.getGradeLevels();
+        const gradeKey = 'g' + grade;
+        const unlockKey = 'gradeLevelsUnlocked_' + gradeKey;
+        const starsKey = 'gradeLevelStars_' + gradeKey;
+        const unlockedRaw = parseInt(localStorage.getItem(unlockKey), 10);
+        const unlocked = Number.isFinite(unlockedRaw) && unlockedRaw >= 1 ? unlockedRaw : 1;
+        let starsMap = {};
+        try { starsMap = JSON.parse(localStorage.getItem(starsKey) || '{}'); } catch (e) {}
+
         const container = document.getElementById('level-path');
         container.innerHTML = '';
 
         levels.forEach(level => {
-            const stars = data.levelStars[level.id.toString()] || 0;
-            const unlocked = level.id <= data.levelsUnlocked;
-            const isCurrent = level.id === data.levelsUnlocked;
+            const earned = starsMap[level.id] || 0;
+            const isUnlocked = level.id <= unlocked;
+            const isCurrent = level.id === unlocked;
 
             const card = document.createElement('div');
-            card.className = `level-card ${unlocked ? 'unlocked' : 'locked'} ${isCurrent ? 'current' : ''}`;
+            card.className = `level-card ${isUnlocked ? 'unlocked' : 'locked'} ${isCurrent ? 'current' : ''}`;
             card.innerHTML = `
-                <div class="level-number">${unlocked ? level.id : '🔒'}</div>
+                <div class="level-number">${isUnlocked ? level.id : '🔒'}</div>
                 <div class="level-info">
-                    <h3>${level.nameCN}</h3>
-                    <p>${level.description}</p>
+                    <h3>第${level.id}关 · ${level.name}</h3>
+                    <p>${level.desc}</p>
                 </div>
-                <div class="level-stars">${'⭐'.repeat(stars)}${'☆'.repeat(3 - stars)}</div>
+                <div class="level-stars">${'⭐'.repeat(earned)}${'☆'.repeat(3 - earned)}</div>
             `;
-
-            if (unlocked) {
-                card.onclick = () => Game.startLevel(level.id);
+            if (isUnlocked) {
+                card.onclick = () => Game.startGradeLevel(grade, level.id);
             }
-
             container.appendChild(card);
         });
     }
 
-    // Render module selection grid
+    // Render module practice (Phase 2: grade random + legacy modules)
     async function renderModules() {
-        const modules = await Game.loadModuleData();
+        renderGradePicker('modules-grade-picker', () => renderModulesForGrade());
+        await renderModulesForGrade();
+    }
+
+    async function renderModulesForGrade() {
+        const grade = getSelectedGrade();
         const container = document.getElementById('module-grid');
-        if (!modules) return;
+        if (!container) return;
         container.innerHTML = '';
 
-        modules.forEach(mod => {
+        const QUICK = [
+            { count: 10, icon: '⚡', nameCN: '快速练习', nameEN: 'Quick',  desc: '10 个单词 · 1~2 分钟' },
+            { count: 20, icon: '🎯', nameCN: '标准练习', nameEN: 'Normal', desc: '20 个单词 · 3~5 分钟' },
+            { count: 30, icon: '🔥', nameCN: '强化练习', nameEN: 'Intense', desc: '30 个单词 · 全面巩固' },
+            { count: 50, icon: '🏅', nameCN: '马拉松',   nameEN: 'Marathon', desc: '50 个单词 · 终极挑战' }
+        ];
+        QUICK.forEach(q => {
             const card = document.createElement('div');
-            card.className = 'module-card';
+            card.className = 'module-card module-card-grade';
             card.innerHTML = `
-                <div class="module-icon">${mod.icon}</div>
-                <h3>${mod.nameCN}</h3>
-                <p>${mod.name}</p>
-                <p style="font-size:12px;color:var(--text-light);margin-top:4px;">
-                    ${mod.words.length} 词 | ${mod.phrases.length} 短语 | ${mod.sentences.length} 句
-                </p>
+                <div class="module-icon">${q.icon}</div>
+                <h3>${q.nameCN}</h3>
+                <p>${q.nameEN}</p>
+                <p style="font-size:12px;color:var(--text-light);margin-top:4px;">${q.desc}</p>
             `;
-            card.onclick = () => openModuleDetail(mod);
+            card.onclick = () => Game.startGradeRandom(grade, q.count);
             container.appendChild(card);
         });
+
+        // Legacy themed modules (Animals/Sports/...) — kept for variety
+        try {
+            const modules = await Game.loadModuleData();
+            if (modules && modules.length) {
+                const sep = document.createElement('div');
+                sep.className = 'module-section-sep';
+                sep.innerHTML = '<span>主题模块 · Themed Modules</span>';
+                container.appendChild(sep);
+
+                modules.forEach(mod => {
+                    const card = document.createElement('div');
+                    card.className = 'module-card';
+                    card.innerHTML = `
+                        <div class="module-icon">${mod.icon}</div>
+                        <h3>${mod.nameCN}</h3>
+                        <p>${mod.name}</p>
+                        <p style="font-size:12px;color:var(--text-light);margin-top:4px;">
+                            ${mod.words.length} 词 | ${mod.phrases.length} 短语 | ${mod.sentences.length} 句
+                        </p>
+                    `;
+                    card.onclick = () => openModuleDetail(mod);
+                    container.appendChild(card);
+                });
+            }
+        } catch (e) { /* themed modules optional */ }
     }
 
     // Open module detail
