@@ -214,9 +214,144 @@ body {
 .home-buttons {
     display: flex;
     flex-direction: column;
+    gap: 16px;
+    width: 100%;
+    align-items: stretch;
+}
+
+/* Hero card: featured Custom Vocabulary */
+.home-hero-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 22px 24px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 60%, #ec4899 100%);
+    color: #fff;
+    cursor: pointer;
+    text-decoration: none;
+    box-shadow: 0 10px 30px rgba(99, 102, 241, 0.35);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    position: relative;
+    overflow: hidden;
+}
+.home-hero-card::before {
+    content: '';
+    position: absolute;
+    top: -40px; right: -40px;
+    width: 160px; height: 160px;
+    background: radial-gradient(circle, rgba(255,255,255,0.18) 0%, transparent 70%);
+    pointer-events: none;
+}
+.home-hero-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 36px rgba(99, 102, 241, 0.45);
+}
+.home-hero-icon {
+    font-size: 56px;
+    flex-shrink: 0;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.2));
+}
+.home-hero-text { flex: 1; min-width: 0; }
+.home-hero-text h3 {
+    margin: 0 0 6px;
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+}
+.home-hero-text h3 .en {
+    font-size: 14px;
+    font-weight: 500;
+    opacity: 0.85;
+    margin-left: 6px;
+}
+.home-hero-text p {
+    margin: 0 0 10px;
+    font-size: 13px;
+    line-height: 1.5;
+    opacity: 0.92;
+}
+.home-hero-cta {
+    display: inline-block;
+    padding: 6px 14px;
+    background: rgba(255,255,255,0.22);
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    backdrop-filter: blur(4px);
+}
+
+.home-section-title {
+    margin: 8px 4px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-light);
+    letter-spacing: 0.5px;
+}
+
+.home-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 12px;
     width: 100%;
+}
+
+.home-card {
+    display: flex;
+    flex-direction: column;
     align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 22px 12px;
+    border-radius: 14px;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    color: #fff;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+}
+.home-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 24px rgba(0,0,0,0.12);
+}
+.home-card-icon { font-size: 36px; margin-bottom: 4px; }
+.home-card-title { font-size: 16px; font-weight: 700; }
+.home-card-en { font-size: 12px; opacity: 0.9; }
+.home-card-primary   { background: linear-gradient(135deg, #6366f1, #4f46e5); }
+.home-card-secondary { background: linear-gradient(135deg, #06b6d4, #0891b2); }
+.home-card-warning   { background: linear-gradient(135deg, #f59e0b, #ea580c); }
+.home-card-accent    { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
+
+.home-utility-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 4px;
+}
+.home-util-btn {
+    padding: 8px 14px;
+    background: var(--bg-card);
+    border: 1px solid #e5e7eb;
+    border-radius: 999px;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.home-util-btn:hover {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
+@media (max-width: 480px) {
+    .home-hero-card { padding: 18px; }
+    .home-hero-icon { font-size: 44px; }
+    .home-hero-text h3 { font-size: 18px; }
+    .home-card { padding: 18px 8px; }
+    .home-card-icon { font-size: 30px; }
+    .home-card-title { font-size: 14px; }
 }
 
 .home-footer {

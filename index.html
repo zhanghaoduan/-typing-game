@@ -65,32 +65,50 @@
                 </div>
             </div>
             <div class="home-buttons">
-                <button class="btn btn-primary btn-large" onclick="App.showPage('page-levels')">
-                    🎮 闯关模式 Level Mode
-                </button>
-                <button class="btn btn-secondary btn-large" onclick="App.showPage('page-modules')">
-                    📚 模块练习 Module Practice
-                </button>
-                <button class="btn btn-warning btn-large" onclick="App.showPage('page-upload')">
-                    📷 图片识别练习 Image Upload Test
-                </button>
-                <button class="btn btn-accent btn-large" onclick="App.showPage('page-achievements')">
-                    🏆 成就奖励 Achievements
-                </button>
-                <button class="btn btn-outline btn-large" onclick="App.showPage('page-leaderboard')">
-                    📊 排行榜 Leaderboard
-                </button>
-                <button class="btn btn-danger btn-large" id="admin-panel-btn" style="display:none;" onclick="App.showPage('page-admin')">
-                    👑 管理面板 Admin Panel
-                </button>
-                <button class="btn btn-outline btn-large" onclick="App.showPage('page-profile')">
-                    👤 我的中心 My Profile
-                </button>
+                <!-- Hero card: Custom Vocabulary / My Homework -->
+                <a class="home-hero-card" onclick="App.showPage('page-upload')">
+                    <div class="home-hero-icon">📚</div>
+                    <div class="home-hero-text">
+                        <h3>我的作业本 <span class="en">My Homework</span></h3>
+                        <p>复习老师留的作业 · 上传图片自动识别单词 / 词组 / 句子，按单元保存反复练习</p>
+                        <span class="home-hero-cta">📷 上传 / 管理 →</span>
+                    </div>
+                </a>
+
+                <!-- Game grid -->
+                <div class="home-section-title">🎮 练习游戏 Practice Games</div>
+                <div class="home-grid">
+                    <button class="home-card home-card-primary" onclick="App.showPage('page-levels')">
+                        <span class="home-card-icon">🏆</span>
+                        <span class="home-card-title">闯关模式</span>
+                        <span class="home-card-en">Level Mode</span>
+                    </button>
+                    <button class="home-card home-card-secondary" onclick="App.showPage('page-modules')">
+                        <span class="home-card-icon">📖</span>
+                        <span class="home-card-title">模块练习</span>
+                        <span class="home-card-en">Module Practice</span>
+                    </button>
+                    <button class="home-card home-card-warning" onclick="App.showPage('page-review')">
+                        <span class="home-card-icon">📝</span>
+                        <span class="home-card-title">错题本</span>
+                        <span class="home-card-en">Review</span>
+                    </button>
+                    <button class="home-card home-card-accent" onclick="App.showPage('page-achievements')">
+                        <span class="home-card-icon">🌟</span>
+                        <span class="home-card-title">成就奖励</span>
+                        <span class="home-card-en">Achievements</span>
+                    </button>
+                </div>
+
+                <!-- Utility row -->
+                <div class="home-utility-row">
+                    <button class="home-util-btn" onclick="App.showPage('page-leaderboard')">📊 排行榜</button>
+                    <button class="home-util-btn" onclick="App.showPage('page-profile')">👤 我的中心</button>
+                    <button class="home-util-btn" id="admin-panel-btn" style="display:none;" onclick="App.showPage('page-admin')">👑 管理面板</button>
+                    <button class="home-util-btn" onclick="App.showPage('page-settings')">⚙️ 设置</button>
+                </div>
             </div>
-            <div class="home-footer">
-                <button class="btn btn-small" onclick="App.showPage('page-settings')">⚙️ 设置 Settings</button>
-                <button class="btn btn-small" onclick="App.showPage('page-review')">📝 错题本 Review</button>
-            </div>
+            <div class="home-footer" style="display:none;"></div>
         </div>
     </div>
 
@@ -138,7 +156,7 @@
     <div id="page-upload" class="page">
         <div class="page-header">
             <button class="btn-back" onclick="App.showPage('page-home')">← 返回</button>
-            <h2>📷 图片识别练习 Image Upload Test</h2>
+            <h2>📚 我的作业本 My Homework</h2>
         </div>
         <div class="upload-container">
             <div class="upload-instructions">
