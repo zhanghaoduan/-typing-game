@@ -493,7 +493,10 @@ const Game = (() => {
                         if (!cardEl) continue;
                         const exHtml = exs.length
                             ? '<div class="dict-examples"><div class="dict-examples-label">📚 例句</div>' +
-                              exs.map(e => `<div class="dict-example"><div class="dict-ex-en">${escapeHtml(e.en)}</div><div class="dict-ex-cn">${escapeHtml(e.cn)}</div></div>`).join('') +
+                              exs.map(e => {
+                                  const safeEn = (e.en || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                                  return `<div class="dict-example"><div class="dict-ex-en">${escapeHtml(e.en)} <button class="dict-ex-speak" title="朗读" onclick="Audio.speak('${safeEn}')">🔊</button></div><div class="dict-ex-cn">${escapeHtml(e.cn)}</div></div>`;
+                              }).join('') +
                               '</div>'
                             : '<div class="dict-examples"><div class="dict-examples-label">📚 例句</div><div class="dict-empty-small">暂无例句</div></div>';
                         cardEl.insertAdjacentHTML('beforeend', exHtml);

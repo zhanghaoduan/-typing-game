@@ -1824,3 +1824,10 @@ body.theme-dark code, body.theme-dark .review-item-input code {
     background: #334155; color: #fca5a5;
 }
 body.theme-dark .user-grade-badge { background: #334155; color: #fbbf24; }
+
+.dict-ex-speak {
+    background: transparent; border: none; cursor: pointer;
+    font-size: 14px; padding: 0 4px; opacity: 0.7;
+    vertical-align: middle;
+}
+.dict-ex-speak:hover { opacity: 1; transform: scale(1.15); }
