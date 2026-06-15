@@ -441,6 +441,78 @@ const Game = (() => {
         return ch;
     }
 
+    // Fetch dictionary entries for the correct word and user input, then render rich feedback panels
+    async function renderDictPanels(correctWord, userAnswer, containerId) {
+        try {
+            const wordsToLookup = [correctWord];
+            const userTrimmed = String(userAnswer || '').trim();
+            const sameWord = userTrimmed.toLowerCase() === String(correctWord || '').toLowerCase();
+            if (userTrimmed && !sameWord) wordsToLookup.push(userTrimmed);
+
+            const r = await fetch('/api/dict/lookup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ words: wordsToLookup })
+            });
+            const data = r.ok ? await r.json() : { results: {} };
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            const correctEntry = data.results && data.results[correctWord];
+            const userEntry = (!sameWord && userTrimmed)
+                ? (data.results && data.results[userTrimmed])
+                : null;
+
+            let html = '';
+            html += renderDictCard('✅ 正确单词', correctWord, correctEntry, false);
+            if (userEntry !== null && userTrimmed && !sameWord) {
+                html += renderDictCard('✏️ 你输入的', userTrimmed, userEntry, true);
+            }
+            container.innerHTML = html;
+        } catch (err) {
+            const container = document.getElementById(containerId);
+            if (container) container.innerHTML = '<div class="dict-error">词典查询失败</div>';
+        }
+    }
+
+    function renderDictCard(label, word, entry, isUser) {
+        const safeWord = String(word || '').replace(/</g, '&lt;');
+        if (!entry || !entry.found) {
+            return `<div class="dict-card ${isUser ? 'dict-card-user' : 'dict-card-correct'}">
+                <div class="dict-label">${label}</div>
+                <div class="dict-word">${safeWord}</div>
+                <div class="dict-empty">❓ 词典中查无此单词</div>
+            </div>`;
+        }
+        const ph = entry.phonetic ? `<span class="dict-phonetic">/${entry.phonetic}/</span>` : '';
+        const tr = entry.translation ? `<div class="dict-tr">${escapeHtml(entry.translation)}</div>` : '';
+        const def = entry.definition ? `<div class="dict-def">📘 ${escapeHtml(entry.definition)}</div>` : '';
+        const exch = entry.exchange ? renderExchange(entry.exchange) : '';
+        const speakBtn = `<button class="dict-speak" title="朗读" onclick="Audio.speak('${entry.word.replace(/'/g, "\\'")}')">🔊</button>`;
+        return `<div class="dict-card ${isUser ? 'dict-card-user' : 'dict-card-correct'}">
+            <div class="dict-label">${label}</div>
+            <div class="dict-word-row"><span class="dict-word">${escapeHtml(entry.word || word)}</span> ${ph} ${speakBtn}</div>
+            ${tr}
+            ${def}
+            ${exch}
+        </div>`;
+    }
+
+    function renderExchange(ex) {
+        if (!ex) return '';
+        const labels = { p: '过去式', d: '过去分词', i: '现在分词', '3': '第三人称单数', s: '复数', r: '比较级', t: '最高级', '0': '原形' };
+        const parts = [];
+        for (const k of Object.keys(labels)) {
+            if (ex[k]) parts.push(`<span class="dict-exch"><em>${labels[k]}</em>: ${escapeHtml(ex[k])}</span>`);
+        }
+        return parts.length ? `<div class="dict-exchange">${parts.join(' · ')}</div>` : '';
+    }
+
+    function escapeHtml(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
     // Submit answer
     function submitAnswer() {
         if (state.isPaused) return;
@@ -508,8 +580,11 @@ const Game = (() => {
             // UI feedback - highlight differences
             inputEl.className = 'game-input wrong';
             feedbackEl.className = 'feedback-area feedback-wrong';
-            feedbackEl.innerHTML = `❌ 再试一次！<br>${buildDiffHighlight(item.en, answer)}`;
+            feedbackEl.innerHTML = `❌ 再试一次！<br>${buildDiffHighlight(item.en, answer)}<div class="dict-panels" id="dict-panels-${state.currentIndex}"><div class="dict-loading">📖 正在查询词典…</div></div>`;
             Audio.playWrong();
+
+            // Async fetch rich dictionary info for both correct and user's input
+            renderDictPanels(item.en, answer, `dict-panels-${state.currentIndex}`);
 
             // Save wrong answer for review
             Storage.addWrongAnswer({

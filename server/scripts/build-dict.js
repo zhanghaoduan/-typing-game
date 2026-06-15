@@ -140,3 +140,14 @@ fs.writeFileSync(LEVEL_OUT, JSON.stringify(levelDict));
 const lstat = fs.statSync(LEVEL_OUT);
 console.log(`Wrote level dict (${(lstat.size/1024).toFixed(1)} KB) to ${LEVEL_OUT}`);
 console.log(`  小学 lv1: ${levelDict[1].length} | 初中 lv2: ${levelDict[2].length} | 高中 lv3: ${levelDict[3].length} | 大学 lv4: ${levelDict[4].length}`);
+
+// Copy stardict.db into the repo's runtime dict folder so the server can do
+// rich lookups (phonetic, definition, translation) without depending on /tmp.
+try {
+    const STAR_DEST = path.join(OUT_DIR, 'stardict.db');
+    fs.copyFileSync(dbPath, STAR_DEST);
+    const sstat = fs.statSync(STAR_DEST);
+    console.log(`Copied stardict.db (${(sstat.size/1024/1024).toFixed(1)} MB) to ${STAR_DEST}`);
+} catch (err) {
+    console.warn('Failed to copy stardict.db:', err.message);
+}

@@ -1714,3 +1714,20 @@ body {
 .srs-level { color:#f59e0b; letter-spacing:1px; }
 .srs-counts { color:var(--text-light,#6b7280); }
 .review-item-actions { display:flex; flex-direction:column; gap:6px; }
+
+/* ===== Dict feedback panels (on wrong answer) ===== */
+.dict-panels { margin-top:14px; display:flex; flex-direction:column; gap:10px; text-align:left; }
+.dict-loading, .dict-error { font-size:13px; color:#9ca3af; padding:8px 0; }
+.dict-card { background:rgba(255,255,255,0.06); border-radius:10px; padding:10px 14px; border-left:4px solid; }
+.dict-card-correct { border-left-color:#10b981; }
+.dict-card-user { border-left-color:#f59e0b; }
+.dict-label { font-size:12px; opacity:.7; margin-bottom:4px; }
+.dict-word-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.dict-word { font-size:20px; font-weight:700; }
+.dict-phonetic { font-size:14px; color:#a78bfa; font-family:'Times New Roman',serif; }
+.dict-speak { background:transparent; border:none; cursor:pointer; font-size:18px; padding:2px 4px; }
+.dict-tr { font-size:14px; color:#e5e7eb; margin-top:4px; line-height:1.5; }
+.dict-def { font-size:13px; color:#cbd5e1; margin-top:4px; line-height:1.5; }
+.dict-exchange { font-size:12px; color:#9ca3af; margin-top:6px; }
+.dict-exchange em { font-style:normal; color:#fbbf24; margin-right:2px; }
+.dict-empty { color:#fca5a5; font-size:14px; margin-top:4px; }

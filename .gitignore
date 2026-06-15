@@ -7,3 +7,4 @@ server/data/
 *.log
 server/srv.pid
 server/dict/*.json
+server/dict/*.db
