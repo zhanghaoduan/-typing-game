@@ -267,7 +267,7 @@ const App = (() => {
     // Render wrong answer review (server-side SRS + local fallback)
     async function renderReview() {
         const container = document.getElementById('review-content');
-        const isLoggedIn = window.AuthUI && AuthUI.isLoggedIn && AuthUI.isLoggedIn();
+        const isLoggedIn = typeof AuthUI !== "undefined" && AuthUI.isLoggedIn && AuthUI.isLoggedIn();
 
         let stats = null, wrongItems = [];
         if (isLoggedIn) {
@@ -380,7 +380,7 @@ const App = (() => {
     async function startDictationNew() {
         if (!_requireLogin()) return;
         // Map user grade to level 1..4
-        const grade = (window.AuthUI && AuthUI.getUser && AuthUI.getUser() && AuthUI.getUser().grade) || '';
+        const grade = (typeof AuthUI !== "undefined" && AuthUI.getUser && AuthUI.getUser() && AuthUI.getUser().grade) || '';
         let level = 2;
         if (/小学/.test(grade)) level = 1;
         else if (/初/.test(grade)) level = 2;
@@ -402,7 +402,7 @@ const App = (() => {
 
     async function markMastered(en) {
         if (!en) return;
-        if (window.AuthUI && AuthUI.isLoggedIn && AuthUI.isLoggedIn()) {
+        if (typeof AuthUI !== "undefined" && AuthUI.isLoggedIn && AuthUI.isLoggedIn()) {
             try {
                 await AuthUI.apiRequest('/srs/word/' + encodeURIComponent(en), { method: 'DELETE' });
             } catch (_) {}
@@ -412,7 +412,7 @@ const App = (() => {
     }
 
     function _requireLogin() {
-        if (window.AuthUI && AuthUI.isLoggedIn && AuthUI.isLoggedIn()) return true;
+        if (typeof AuthUI !== "undefined" && AuthUI.isLoggedIn && AuthUI.isLoggedIn()) return true;
         alert('请先登录后使用听写训练');
         return false;
     }

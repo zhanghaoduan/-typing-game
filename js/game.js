@@ -35,9 +35,9 @@ const Game = (() => {
     function reportSrs(item, correct, input) {
         if (!item || item.type !== 'word' || !item.en) return;
         try {
-            if (!window.AuthUI || !window.AuthUI.isLoggedIn || !window.AuthUI.isLoggedIn()) return;
+            if (typeof AuthUI === 'undefined' || !AuthUI.isLoggedIn || !AuthUI.isLoggedIn()) return;
             const headers = { 'Content-Type': 'application/json' };
-            const tok = (window.AuthUI.getToken && window.AuthUI.getToken()) || localStorage.getItem('auth_token');
+            const tok = (AuthUI.getToken && AuthUI.getToken()) || localStorage.getItem('auth_token');
             if (tok) headers['Authorization'] = 'Bearer ' + tok;
             fetch('/api/srs/answer', {
                 method: 'POST',
