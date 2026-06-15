@@ -28,7 +28,29 @@ const Game = (() => {
         coinsEarned: 0
     };
 
-    // Level definitions
+    // Track whether current item has been reported to SRS (one report per item)
+    let _srsReportedForIndex = -1;
+
+    // Report a single answer to server-side SRS (best-effort, non-blocking)
+    function reportSrs(item, correct, input) {
+        if (!item || item.type !== 'word' || !item.en) return;
+        try {
+            if (!window.AuthUI || !window.AuthUI.isLoggedIn || !window.AuthUI.isLoggedIn()) return;
+            const headers = { 'Content-Type': 'application/json' };
+            const tok = (window.AuthUI.getToken && window.AuthUI.getToken()) || localStorage.getItem('auth_token');
+            if (tok) headers['Authorization'] = 'Bearer ' + tok;
+            fetch('/api/srs/answer', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    en: item.en,
+                    cn: item.cn || '',
+                    correct: !!correct,
+                    input: typeof input === 'string' ? input.slice(0, 200) : ''
+                })
+            }).catch(() => {});
+        } catch (_) {}
+    }
     const LEVELS = [
         {
             id: 1, name: "单词入门 Word Basics",
@@ -267,8 +289,39 @@ const Game = (() => {
         showCurrentItem();
     }
 
+    // Start dictation (听写训练) — items are {en,cn,type:'word'}; uses listening mode
+    function startDictation(items) {
+        if (!items || items.length === 0) return;
+        _srsReportedForIndex = -1;
+        state = {
+            mode: 'listening',
+            level: 0,
+            items: items,
+            currentIndex: 0,
+            score: 0,
+            combo: 0,
+            maxCombo: 0,
+            lives: 99,
+            maxLives: 99,
+            correct: 0,
+            wrong: 0,
+            totalItems: items.length,
+            timer: null,
+            timeLeft: 0,
+            timeTotal: 0,
+            startTime: Date.now(),
+            isPaused: false,
+            isLevelMode: false,
+            currentModule: null,
+            coinsEarned: 0
+        };
+        initGameUI();
+        startTimer();
+        showCurrentItem();
+    }
     // Initialize game UI
     function initGameUI() {
+        _srsReportedForIndex = -1;
         App.showPage('page-game');
         document.getElementById('game-level').textContent = state.isLevelMode ? state.level : '练习';
         document.getElementById('game-score').textContent = '0';
@@ -428,6 +481,11 @@ const Game = (() => {
             // Remove from wrong answers if was there
             Storage.removeWrongAnswer(item.en);
 
+            // Report to SRS (only if first attempt — i.e. not already reported as wrong)
+            if (_srsReportedForIndex !== state.currentIndex) {
+                reportSrs(item, true, answer);
+            }
+
             // Update WPM
             updateWPM();
 
@@ -460,6 +518,12 @@ const Game = (() => {
                 yourAnswer: answer,
                 type: item.type
             });
+
+            // Report to SRS once per item (first wrong attempt)
+            if (_srsReportedForIndex !== state.currentIndex) {
+                reportSrs(item, false, answer);
+                _srsReportedForIndex = state.currentIndex;
+            }
 
             // Update combo & accuracy display
             document.getElementById('game-combo').textContent = state.combo;
@@ -867,6 +931,7 @@ const Game = (() => {
         startCustomPractice,
         startGradeLevel,
         startGradeRandom,
+        startDictation,
         submitAnswer,
         nextLevel,
         retryLevel,

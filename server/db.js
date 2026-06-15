@@ -88,6 +88,23 @@ db.exec(`
         zh_text TEXT NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS word_progress (
+        user_id INTEGER NOT NULL,
+        en_word TEXT NOT NULL,
+        cn_text TEXT DEFAULT '',
+        correct_count INTEGER DEFAULT 0,
+        wrong_count INTEGER DEFAULT 0,
+        consecutive_correct INTEGER DEFAULT 0,
+        level INTEGER DEFAULT 0,
+        last_input TEXT DEFAULT '',
+        next_due_at DATETIME,
+        last_seen_at DATETIME,
+        first_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, en_word)
+    );
+    CREATE INDEX IF NOT EXISTS idx_word_progress_due ON word_progress(user_id, next_due_at);
+    CREATE INDEX IF NOT EXISTS idx_word_progress_wrong ON word_progress(user_id, wrong_count);
 `);
 
 // ---- Migrations: add metadata columns to units (idempotent) ----

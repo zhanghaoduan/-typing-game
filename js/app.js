@@ -264,35 +264,157 @@ const App = (() => {
         });
     }
 
-    // Render wrong answer review
-    function renderReview() {
-        const data = Storage.getData();
+    // Render wrong answer review (server-side SRS + local fallback)
+    async function renderReview() {
         const container = document.getElementById('review-content');
+        const isLoggedIn = window.AuthUI && AuthUI.isLoggedIn && AuthUI.isLoggedIn();
 
-        if (data.wrongAnswers.length === 0) {
-            container.innerHTML = '<p class="empty-message">🎉 暂无错题记录 No wrong answers! Keep it up!</p>';
+        let stats = null, wrongItems = [];
+        if (isLoggedIn) {
+            try {
+                const [s, wb] = await Promise.all([
+                    AuthUI.apiRequest('/srs/stats'),
+                    AuthUI.apiRequest('/srs/wrongbook?limit=200')
+                ]);
+                if (s && s.ok) stats = await s.json();
+                if (wb && wb.ok) {
+                    const data = await wb.json();
+                    wrongItems = data.items || [];
+                }
+            } catch (_) {}
+        }
+
+        const localData = Storage.getData();
+        // Fallback for guests / merge: surface local-only wrong answers as well
+        if (!isLoggedIn || wrongItems.length === 0) {
+            const seen = new Set(wrongItems.map(w => w.en.toLowerCase()));
+            (localData.wrongAnswers || []).forEach(w => {
+                if (!seen.has(w.en.toLowerCase())) {
+                    wrongItems.push({
+                        en: w.en, cn: w.cn || '', level: 0,
+                        correct_count: 0, wrong_count: 1,
+                        last_input: w.yourAnswer || '', _local: true
+                    });
+                }
+            });
+        }
+
+        let html = '';
+        if (stats) {
+            html += `<div class="srs-stats">
+                <div class="srs-stat"><span class="srs-stat-num">${stats.dueNow}</span><span class="srs-stat-label">今日待复习</span></div>
+                <div class="srs-stat"><span class="srs-stat-num">${stats.wrongbook}</span><span class="srs-stat-label">错题</span></div>
+                <div class="srs-stat"><span class="srs-stat-num">${stats.learning}</span><span class="srs-stat-label">学习中</span></div>
+                <div class="srs-stat"><span class="srs-stat-num">${stats.mastered}</span><span class="srs-stat-label">已掌握</span></div>
+            </div>`;
+        }
+
+        html += `<div class="review-actions">
+            <button class="btn btn-primary" onclick="App.startDictationDue()">🎧 今日听写复习</button>
+            <button class="btn btn-secondary" onclick="App.startDictationWrongbook()">📒 听写错题本</button>
+            <button class="btn btn-outline" onclick="App.startDictationNew()">✨ 听写本年级新词</button>
+        </div>`;
+
+        if (wrongItems.length === 0) {
+            html += '<p class="empty-message">🎉 暂无错题记录 No wrong answers!</p>';
+            container.innerHTML = html;
             return;
         }
 
-        container.innerHTML = `<p style="margin-bottom:16px;color:var(--text-light);">
-            共 ${data.wrongAnswers.length} 个错题 | ${data.wrongAnswers.length} items to review
-        </p>`;
-
-        data.wrongAnswers.slice(0, 30).forEach(item => {
-            const div = document.createElement('div');
-            div.className = 'review-item';
-            div.innerHTML = `
-                <div>
-                    <div class="correct-answer">${item.en}</div>
-                    <div class="hint">${item.cn}</div>
-                    <div class="your-answer">你的答案: ${item.yourAnswer}</div>
+        html += `<p class="review-count">共 ${wrongItems.length} 个错题 | sorted by priority</p>`;
+        html += '<div class="review-list">';
+        wrongItems.slice(0, 100).forEach(item => {
+            const en = (item.en || '').replace(/"/g, '&quot;');
+            const cn = (item.cn || '').replace(/</g, '&lt;');
+            const lvl = item.level || 0;
+            const stars = '★'.repeat(lvl) + '☆'.repeat(5 - lvl);
+            const wrong = item.wrong_count || 0;
+            const correct = item.correct_count || 0;
+            const lastInput = (item.last_input || '').replace(/</g, '&lt;');
+            html += `<div class="review-item">
+                <div class="review-item-main">
+                    <div class="review-item-en">${en}</div>
+                    <div class="review-item-cn">${cn}</div>
+                    ${lastInput ? `<div class="review-item-input">上次输入: <code>${lastInput}</code></div>` : ''}
+                    <div class="review-item-meta">
+                        <span class="srs-level" title="掌握度">${stars}</span>
+                        <span class="srs-counts">✓ ${correct} · ✗ ${wrong}</span>
+                    </div>
                 </div>
-                <button class="btn btn-small btn-success" onclick="Storage.removeWrongAnswer('${item.en.replace(/'/g, "\\'")}');App.renderReview();">
-                    ✓ 已掌握
-                </button>
-            `;
-            container.appendChild(div);
+                <div class="review-item-actions">
+                    <button class="btn btn-small btn-primary" onclick="App.startDictationOne('${en}','${cn.replace(/'/g, "\\'")}')">🎧 听写</button>
+                    <button class="btn btn-small btn-success" onclick="App.markMastered('${en}')">✓ 已掌握</button>
+                </div>
+            </div>`;
         });
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+    async function startDictationDue() {
+        if (!_requireLogin()) return;
+        try {
+            const r = await AuthUI.apiRequest('/srs/due?limit=20');
+            const data = r && r.ok ? await r.json() : { items: [] };
+            if (!data.items || data.items.length === 0) {
+                alert('🎉 今天没有需要复习的单词了！可以试试"听写新词"。');
+                return;
+            }
+            Game.startDictation(data.items);
+        } catch (e) { alert('加载失败: ' + e.message); }
+    }
+
+    async function startDictationWrongbook() {
+        if (!_requireLogin()) return;
+        try {
+            const r = await AuthUI.apiRequest('/srs/wrongbook?limit=20');
+            const data = r && r.ok ? await r.json() : { items: [] };
+            if (!data.items || data.items.length === 0) {
+                alert('错题本是空的 🎉');
+                return;
+            }
+            Game.startDictation(data.items);
+        } catch (e) { alert('加载失败: ' + e.message); }
+    }
+
+    async function startDictationNew() {
+        if (!_requireLogin()) return;
+        // Map user grade to level 1..4
+        const grade = (window.AuthUI && AuthUI.getUser && AuthUI.getUser() && AuthUI.getUser().grade) || '';
+        let level = 2;
+        if (/小学/.test(grade)) level = 1;
+        else if (/初/.test(grade)) level = 2;
+        else if (/高/.test(grade)) level = 3;
+        try {
+            const r = await fetch(`/api/practice/random?level=${level}&count=20`);
+            const data = await r.json();
+            if (!data.items || data.items.length === 0) {
+                alert('词库为空');
+                return;
+            }
+            Game.startDictation(data.items.map(it => ({ ...it, type: 'word' })));
+        } catch (e) { alert('加载失败: ' + e.message); }
+    }
+
+    function startDictationOne(en, cn) {
+        Game.startDictation([{ en, cn, type: 'word' }]);
+    }
+
+    async function markMastered(en) {
+        if (!en) return;
+        if (window.AuthUI && AuthUI.isLoggedIn && AuthUI.isLoggedIn()) {
+            try {
+                await AuthUI.apiRequest('/srs/word/' + encodeURIComponent(en), { method: 'DELETE' });
+            } catch (_) {}
+        }
+        Storage.removeWrongAnswer(en);
+        renderReview();
+    }
+
+    function _requireLogin() {
+        if (window.AuthUI && AuthUI.isLoggedIn && AuthUI.isLoggedIn()) return true;
+        alert('请先登录后使用听写训练');
+        return false;
     }
 
     // Load settings
@@ -613,7 +735,12 @@ const App = (() => {
         renderAdminUsers,
         adminResetPassword,
         adminDeleteUser,
-        renderAdminRankings
+        renderAdminRankings,
+        startDictationDue,
+        startDictationWrongbook,
+        startDictationNew,
+        startDictationOne,
+        markMastered
     };
 })();
 
