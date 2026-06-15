@@ -50,12 +50,25 @@ const rows = db.prepare(`
 
 function clean(t) {
     if (!t) return '';
-    // Take first line, strip trailing "(xxx)" annotations like "(spirit的复数)"
-    let line = t.split(/\r?\n/)[0].trim();
-    line = line.replace(/\s*\([^)]*\)\s*$/, '').trim();
-    // Collapse repeated whitespace
-    line = line.replace(/\s+/g, ' ');
-    return line;
+    const lines = t.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (lines.length === 0) return '';
+    // ECDICT often has multiple definition lines, e.g.:
+    //   难忘
+    //   a. 难忘的
+    // Prefer lines starting with a POS marker (n. / v. / a. / adj. / adv. / vt. / vi. / prep. / conj.)
+    const posRe = /^(n|v|a|adj|adv|vt|vi|prep|conj|pron|art|num|aux|int)\.\s*/i;
+    const withPos = lines.filter(l => posRe.test(l));
+    let chosen;
+    if (withPos.length > 0) {
+        // Join up to 3 POS-tagged lines for richer meaning
+        chosen = withPos.slice(0, 3).join('; ');
+    } else {
+        // No POS markers — take up to first 2 lines
+        chosen = lines.slice(0, 2).join('; ');
+    }
+    chosen = chosen.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    chosen = chosen.replace(/\s+/g, ' ');
+    return chosen;
 }
 
 const dict = {};
@@ -66,7 +79,7 @@ for (const r of rows) {
     if (!key) { dropped++; continue; }
     const val = clean(r.translation);
     if (!val) { dropped++; continue; }
-    if (!dict[key] || val.length < dict[key].length) dict[key] = val;
+    if (!dict[key]) dict[key] = val;
 }
 
 fs.writeFileSync(OUT, JSON.stringify(dict));
