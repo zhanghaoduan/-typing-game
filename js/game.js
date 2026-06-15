@@ -469,6 +469,34 @@ const Game = (() => {
                 html += renderDictCard('✏️ 你输入的', userTrimmed, userEntry, true);
             }
             container.innerHTML = html;
+
+            // Async fetch example sentences for the correct word (and user's word if real)
+            const exWords = [correctWord];
+            if (userEntry && userEntry.found && !sameWord) exWords.push(userTrimmed);
+            try {
+                const er = await fetch('/api/dict/examples', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ words: exWords })
+                });
+                if (er.ok) {
+                    const ed = await er.json();
+                    const stillThere = document.getElementById(containerId);
+                    if (!stillThere) return;
+                    // Inject example list under each card
+                    for (const w of exWords) {
+                        const exs = (ed.results && ed.results[w]) || [];
+                        const cardEl = stillThere.querySelector(`[data-dict-word="${cssEscape(w)}"]`);
+                        if (!cardEl) continue;
+                        const exHtml = exs.length
+                            ? '<div class="dict-examples"><div class="dict-examples-label">📚 例句</div>' +
+                              exs.map(e => `<div class="dict-example"><div class="dict-ex-en">${escapeHtml(e.en)}</div><div class="dict-ex-cn">${escapeHtml(e.cn)}</div></div>`).join('') +
+                              '</div>'
+                            : '<div class="dict-examples"><div class="dict-examples-label">📚 例句</div><div class="dict-empty-small">暂无例句</div></div>';
+                        cardEl.insertAdjacentHTML('beforeend', exHtml);
+                    }
+                }
+            } catch (_) {}
         } catch (err) {
             const container = document.getElementById(containerId);
             if (container) container.innerHTML = '<div class="dict-error">词典查询失败</div>';
@@ -477,8 +505,9 @@ const Game = (() => {
 
     function renderDictCard(label, word, entry, isUser) {
         const safeWord = String(word || '').replace(/</g, '&lt;');
+        const dataAttr = `data-dict-word="${(word || '').replace(/"/g, '&quot;')}"`;
         if (!entry || !entry.found) {
-            return `<div class="dict-card ${isUser ? 'dict-card-user' : 'dict-card-correct'}">
+            return `<div class="dict-card ${isUser ? 'dict-card-user' : 'dict-card-correct'}" ${dataAttr}>
                 <div class="dict-label">${label}</div>
                 <div class="dict-word">${safeWord}</div>
                 <div class="dict-empty">❓ 词典中查无此单词</div>
@@ -489,13 +518,17 @@ const Game = (() => {
         const def = entry.definition ? `<div class="dict-def">📘 ${escapeHtml(entry.definition)}</div>` : '';
         const exch = entry.exchange ? renderExchange(entry.exchange) : '';
         const speakBtn = `<button class="dict-speak" title="朗读" onclick="Audio.speak('${entry.word.replace(/'/g, "\\'")}')">🔊</button>`;
-        return `<div class="dict-card ${isUser ? 'dict-card-user' : 'dict-card-correct'}">
+        return `<div class="dict-card ${isUser ? 'dict-card-user' : 'dict-card-correct'}" ${dataAttr}>
             <div class="dict-label">${label}</div>
             <div class="dict-word-row"><span class="dict-word">${escapeHtml(entry.word || word)}</span> ${ph} ${speakBtn}</div>
             ${tr}
             ${def}
             ${exch}
         </div>`;
+    }
+
+    function cssEscape(s) {
+        return String(s || '').replace(/["\\]/g, '\\$&');
     }
 
     function renderExchange(ex) {

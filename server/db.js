@@ -105,6 +105,12 @@ db.exec(`
     );
     CREATE INDEX IF NOT EXISTS idx_word_progress_due ON word_progress(user_id, next_due_at);
     CREATE INDEX IF NOT EXISTS idx_word_progress_wrong ON word_progress(user_id, wrong_count);
+
+    CREATE TABLE IF NOT EXISTS example_cache (
+        word TEXT PRIMARY KEY,
+        examples_json TEXT NOT NULL,
+        fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
 `);
 
 // ---- Migrations: add metadata columns to units (idempotent) ----
