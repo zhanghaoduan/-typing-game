@@ -1,4 +1,6 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const db = require('../db');
 
 const router = express.Router();
@@ -9,8 +11,45 @@ const deleteCached = db.prepare('DELETE FROM translation_cache WHERE en_text = ?
 
 const EMAIL_PARAM = process.env.MYMEMORY_EMAIL || 'translate@zhanghaoduan.cn';
 
+// Load offline textbook dictionary (built by server/scripts/build-dict.js).
+let TEXTBOOK_DICT = {};
+const TEXTBOOK_PATH = path.join(__dirname, '..', 'dict', 'textbook_dict.json');
+try {
+    if (fs.existsSync(TEXTBOOK_PATH)) {
+        TEXTBOOK_DICT = JSON.parse(fs.readFileSync(TEXTBOOK_PATH, 'utf8'));
+        console.log(`[translate] loaded textbook dict: ${Object.keys(TEXTBOOK_DICT).length} entries`);
+    } else {
+        console.log('[translate] textbook_dict.json not found (run server/scripts/build-dict.js to enable offline dict)');
+    }
+} catch (err) {
+    console.warn('[translate] failed to load textbook dict:', err.message);
+}
+
 function normalizeKey(text) {
     return String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// Try textbook dictionary, including simple morphological variants (plural, -ed, -ing, -ly)
+function lookupTextbook(text) {
+    const key = normalizeKey(text);
+    if (!key) return '';
+    if (TEXTBOOK_DICT[key]) return TEXTBOOK_DICT[key];
+    // Only attempt morphology for single tokens
+    if (key.includes(' ')) return '';
+    const variants = [
+        key.replace(/ies$/, 'y'),
+        key.replace(/es$/, ''),
+        key.replace(/s$/, ''),
+        key.replace(/ed$/, ''),
+        key.replace(/ied$/, 'y'),
+        key.replace(/ing$/, ''),
+        key.replace(/ing$/, 'e'),
+        key.replace(/ly$/, ''),
+    ];
+    for (const v of variants) {
+        if (v && v !== key && TEXTBOOK_DICT[v]) return TEXTBOOK_DICT[v];
+    }
+    return '';
 }
 
 // Reject obviously bad translations (URLs, mostly digits, mostly English letters, error messages)
@@ -83,12 +122,19 @@ async function translateOne(text) {
     const cached = getCached.get(key);
     if (cached) return cached.zh_text;
 
-    // 1) Try Google first (higher quality)
+    // 0) Try offline textbook dictionary first (highest priority for known exam words)
+    const fromBook = lookupTextbook(text);
+    if (fromBook) {
+        putCached.run(key, fromBook);
+        return fromBook;
+    }
+
+    // 1) Google
     let zh = '';
     try { zh = await translateViaGoogle(text); } catch (e) { /* ignore */ }
     if (isBadTranslation(zh, text)) zh = '';
 
-    // 2) Fall back to MyMemory
+    // 2) MyMemory fallback
     if (!zh) {
         try { zh = await translateViaMyMemory(text); } catch (e) { /* ignore */ }
         if (isBadTranslation(zh, text)) zh = '';

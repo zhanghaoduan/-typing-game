@@ -6,3 +6,4 @@ server/data/
 *.db-wal
 *.log
 server/srv.pid
+server/dict/*.json
