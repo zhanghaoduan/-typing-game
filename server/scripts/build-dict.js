@@ -41,11 +41,20 @@ const db = new Database(dbPath, { readonly: true });
 const rows = db.prepare(`
     SELECT word, translation, tag
     FROM stardict
-    WHERE tag LIKE '%zk%'
-       OR tag LIKE '%gk%'
-       OR tag LIKE '%cet4%'
-       OR tag LIKE '%cet6%'
-       OR tag LIKE '%ky%'
+    WHERE translation IS NOT NULL AND translation != ''
+      AND (
+            tag LIKE '%zk%'
+         OR tag LIKE '%gk%'
+         OR tag LIKE '%cet4%'
+         OR tag LIKE '%cet6%'
+         OR tag LIKE '%ky%'
+         OR tag LIKE '%ielts%'
+         OR tag LIKE '%toefl%'
+         OR tag LIKE '%gre%'
+         OR collins >= 1
+         OR oxford >= 1
+         OR (frq IS NOT NULL AND frq > 0 AND frq <= 20000)
+      )
 `).all();
 
 function clean(t) {
