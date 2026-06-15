@@ -1738,3 +1738,89 @@ body {
 .dict-ex-en { font-size:13px; color:#e5e7eb; line-height:1.45; }
 .dict-ex-cn { font-size:12px; color:#a78bfa; line-height:1.45; margin-top:1px; }
 .dict-empty-small { font-size:12px; color:#9ca3af; font-style:italic; }
+
+/* ===== Dark theme ===== */
+.dark-toggle-btn {
+    position: fixed; top: 12px; right: 12px; z-index: 9999;
+    width: 42px; height: 42px; border-radius: 50%;
+    border: 1px solid rgba(0,0,0,0.1);
+    background: rgba(255,255,255,0.85); backdrop-filter: blur(6px);
+    font-size: 20px; cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    transition: transform 0.15s, background 0.2s;
+}
+.dark-toggle-btn:hover { transform: scale(1.08); }
+
+body.theme-dark {
+    background: #0f172a !important;
+    color: #e5e7eb;
+}
+body.theme-dark .dark-toggle-btn {
+    background: rgba(30, 41, 59, 0.85);
+    border-color: rgba(255,255,255,0.1);
+    color: #fbbf24;
+}
+body.theme-dark .home-container,
+body.theme-dark .page,
+body.theme-dark .game-container,
+body.theme-dark .review-content,
+body.theme-dark .settings-content,
+body.theme-dark .auth-container,
+body.theme-dark .modal-content,
+body.theme-dark .upload-section,
+body.theme-dark .saved-units,
+body.theme-dark .level-list,
+body.theme-dark .module-list,
+body.theme-dark .leaderboard-content,
+body.theme-dark .profile-content,
+body.theme-dark .admin-content {
+    background: #0f172a;
+    color: #e5e7eb;
+}
+body.theme-dark h1, body.theme-dark h2, body.theme-dark h3, body.theme-dark h4,
+body.theme-dark .home-section-title,
+body.theme-dark .stat-value,
+body.theme-dark .home-hero-text h3 { color: #f1f5f9; }
+body.theme-dark .stat-label, body.theme-dark .empty-message,
+body.theme-dark .empty-hint, body.theme-dark .home-hero-text p,
+body.theme-dark .review-count, body.theme-dark p { color: #94a3b8; }
+body.theme-dark .home-card, body.theme-dark .home-util-btn,
+body.theme-dark .level-card, body.theme-dark .module-card,
+body.theme-dark .review-item, body.theme-dark .srs-stat,
+body.theme-dark .saved-unit-card, body.theme-dark .home-hero-card,
+body.theme-dark .leaderboard-row, body.theme-dark .profile-card,
+body.theme-dark .admin-row, body.theme-dark .grade-picker .grade-btn,
+body.theme-dark .module-card-grade, body.theme-dark .upload-area,
+body.theme-dark .saved-units-toolbar {
+    background: #1e293b !important;
+    color: #e5e7eb;
+    border-color: #334155;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+body.theme-dark .home-card-title, body.theme-dark .home-card-en,
+body.theme-dark .level-card-title, body.theme-dark .module-card-title { color: #f1f5f9; }
+body.theme-dark input, body.theme-dark select, body.theme-dark textarea,
+body.theme-dark .game-input, body.theme-dark .auth-select,
+body.theme-dark .grade-filter-select {
+    background: #1e293b; color: #f1f5f9; border-color: #475569;
+}
+body.theme-dark input::placeholder { color: #64748b; }
+body.theme-dark .game-area, body.theme-dark .target-display,
+body.theme-dark .feedback-area, body.theme-dark .game-stats {
+    background: #1e293b; color: #f1f5f9;
+}
+body.theme-dark .target-display, body.theme-dark #target-text { color: #fbbf24; }
+body.theme-dark .hint-cn { color: #a78bfa; }
+body.theme-dark .btn { box-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+body.theme-dark .btn-outline { background: transparent; color: #e5e7eb; border-color: #475569; }
+body.theme-dark .btn-back { color: #93c5fd; }
+body.theme-dark .grade-picker .grade-btn.active {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6) !important; color: #fff;
+}
+body.theme-dark .modal-overlay { background: rgba(0,0,0,0.7); }
+body.theme-dark .review-item-en { color: #f1f5f9; }
+body.theme-dark .review-item-cn { color: #cbd5e1; }
+body.theme-dark code, body.theme-dark .review-item-input code {
+    background: #334155; color: #fca5a5;
+}
+body.theme-dark .user-grade-badge { background: #334155; color: #fbbf24; }

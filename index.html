@@ -7,6 +7,9 @@
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+    <!-- Floating dark-mode quick toggle (visible on every page) -->
+    <button id="dark-toggle-btn" class="dark-toggle-btn" onclick="App.toggleDarkMode()" title="切换暗色模式">🌙</button>
+
     <!-- ========== LOGIN PAGE ========== -->
     <div id="page-login" class="page active">
         <div class="auth-container">
@@ -413,6 +416,7 @@
                 <label>🎨 主题 Theme</label>
                 <select id="setting-theme" onchange="App.setTheme(this.value)">
                     <option value="default">默认 Default</option>
+                    <option value="dark">🌙 暗色 Dark</option>
                     <option value="space">太空 Space</option>
                     <option value="adventure">冒险 Adventure</option>
                 </select>

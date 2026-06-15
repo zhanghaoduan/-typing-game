@@ -359,6 +359,9 @@ const Game = (() => {
                 submitAnswer();
             }
         };
+        // Focus the input after the page becomes visible (deferred so display toggles settle)
+        setTimeout(() => { try { input.focus(); } catch (_) {} }, 50);
+        setTimeout(() => { try { input.focus(); } catch (_) {} }, 400);
     }
 
     // Show current item

@@ -434,9 +434,19 @@ const App = (() => {
     // Set theme
     function setTheme(theme) {
         document.body.className = '';
+        if (theme === 'dark') document.body.className = 'theme-dark';
         if (theme === 'space') document.body.className = 'theme-space';
         if (theme === 'adventure') document.body.className = 'theme-adventure';
         localStorage.setItem('typing_game_theme', theme);
+        const btn = document.getElementById('dark-toggle-btn');
+        if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+        const sel = document.getElementById('setting-theme');
+        if (sel) sel.value = theme;
+    }
+
+    function toggleDarkMode() {
+        const cur = localStorage.getItem('typing_game_theme') || 'default';
+        setTheme(cur === 'dark' ? 'default' : 'dark');
     }
 
     // Render admin panel
@@ -740,7 +750,8 @@ const App = (() => {
         startDictationWrongbook,
         startDictationNew,
         startDictationOne,
-        markMastered
+        markMastered,
+        toggleDarkMode
     };
 })();
 
