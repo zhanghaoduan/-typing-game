@@ -7,7 +7,7 @@ const router = express.Router();
 
 // Register
 router.post('/register', (req, res) => {
-    const { username, password } = req.body;
+    const { username, password, grade } = req.body;
 
     if (!username || !password) {
         return res.status(400).json({ error: '用户名和密码不能为空 Username and password required' });
@@ -28,13 +28,14 @@ router.post('/register', (req, res) => {
     }
 
     const hashedPassword = bcrypt.hashSync(password, 10);
-    const result = db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run(username, hashedPassword);
+    const result = db.prepare('INSERT INTO users (username, password, grade) VALUES (?, ?, ?)')
+        .run(username, hashedPassword, grade || '');
 
     const user = { id: result.lastInsertRowid, username, role: 'user' };
     db.prepare('INSERT OR IGNORE INTO user_stats (user_id) VALUES (?)').run(user.id);
     const token = generateToken(user);
 
-    res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
+    res.json({ token, user: { id: user.id, username: user.username, role: user.role, grade: grade || '' } });
 });
 
 // Login
@@ -56,7 +57,7 @@ router.post('/login', (req, res) => {
 
     const token = generateToken(user);
     db.prepare('INSERT OR IGNORE INTO user_stats (user_id) VALUES (?)').run(user.id);
-    res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
+    res.json({ token, user: { id: user.id, username: user.username, role: user.role, grade: user.grade || '' } });
 });
 
 // Change password (authenticated)

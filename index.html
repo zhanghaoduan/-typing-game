@@ -29,8 +29,10 @@
             <div id="register-form" class="auth-form" style="display:none;">
                 <input type="text" id="register-username" placeholder="用户名 Username (2-20字符)" autocomplete="username">
                 <input type="password" id="register-password" placeholder="密码 Password (至少4位)" autocomplete="new-password">
-                <input type="password" id="register-confirm" placeholder="确认密码 Confirm Password" autocomplete="new-password"
-                    onkeydown="if(event.key==='Enter')AuthUI.handleRegister()">
+                <input type="password" id="register-confirm" placeholder="确认密码 Confirm Password" autocomplete="new-password">
+                <select id="register-grade" class="auth-select">
+                    <option value="">选择年级 Choose Grade</option>
+                </select>
                 <p class="auth-error" id="register-error"></p>
                 <button class="btn btn-primary btn-large" onclick="AuthUI.handleRegister()">注册 Register</button>
             </div>
@@ -45,7 +47,6 @@
                 <div class="logo-icon">⌨️</div>
                 <h1>英语打字闯关</h1>
                 <h2>English Typing Adventure</h2>
-                <p class="subtitle">七年级下册 · Grade 7 Semester 2</p>
             </div>
             <div class="home-stats">
                 <div class="stat-item">
@@ -505,6 +506,25 @@
             <div class="modal-actions">
                 <button class="btn btn-outline" onclick="AuthUI.closeChangePassword()">取消 Cancel</button>
                 <button class="btn btn-primary" onclick="AuthUI.submitChangePassword()">确认 Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== SET GRADE MODAL ========== -->
+    <div id="modal-set-grade" class="modal" style="display:none;">
+        <div class="modal-content">
+            <h3>🎓 选择年级 Choose Your Grade</h3>
+            <p style="color:#666;font-size:14px;margin:6px 0 12px;">
+                选择你当前的年级，作业本会默认显示对应年级的内容。<br>
+                你随时可以在右上角 ⚙ 中修改。
+            </p>
+            <select id="sg-grade" class="auth-select" style="width:100%;margin:8px 0;">
+                <option value="">请选择 Please choose</option>
+            </select>
+            <p id="sg-error" class="auth-error"></p>
+            <div class="modal-actions">
+                <button class="btn btn-outline" id="sg-cancel" onclick="AuthUI.closeSetGrade()">稍后再说 Later</button>
+                <button class="btn btn-primary" onclick="AuthUI.submitSetGrade()">确认 Save</button>
             </div>
         </div>
     </div>

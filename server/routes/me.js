@@ -93,4 +93,22 @@ router.get('/practice-history', (req, res) => {
     res.json({ history: rows });
 });
 
+// GET /api/me/profile  — basic user fields (username, role, grade)
+router.get('/profile', (req, res) => {
+    const u = db.prepare('SELECT id, username, role, grade FROM users WHERE id = ?').get(req.user.id);
+    if (!u) return res.status(404).json({ error: 'user not found' });
+    res.json({ user: { id: u.id, username: u.username, role: u.role, grade: u.grade || '' } });
+});
+
+// PUT /api/me/profile  — update grade (only field for now)
+router.put('/profile', (req, res) => {
+    const { grade } = req.body || {};
+    if (typeof grade !== 'string') {
+        return res.status(400).json({ error: 'grade required' });
+    }
+    db.prepare('UPDATE users SET grade = ? WHERE id = ?').run(grade, req.user.id);
+    const u = db.prepare('SELECT id, username, role, grade FROM users WHERE id = ?').get(req.user.id);
+    res.json({ user: { id: u.id, username: u.username, role: u.role, grade: u.grade || '' } });
+});
+
 module.exports = router;

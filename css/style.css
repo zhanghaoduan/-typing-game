@@ -1643,3 +1643,54 @@ body {
     .grade-btn .grade-emoji { font-size: 22px; }
     .grade-btn .grade-name { font-size: 14px; }
 }
+
+/* ============================================
+   User grade badge & set-grade modal & filter
+   ============================================ */
+.auth-select {
+    width: 100%;
+    padding: 10px;
+    margin: 8px 0;
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 8px;
+    font-size: 15px;
+    background: #fff;
+    font-family: inherit;
+}
+
+.user-grade-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    color: #92400e;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    border: 1px solid #fbbf24;
+}
+.user-grade-badge:hover {
+    background: linear-gradient(135deg, #fde68a, #fcd34d);
+    box-shadow: 0 2px 6px rgba(251, 191, 36, 0.35);
+}
+
+.grade-filter-select {
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border, #e5e7eb);
+    background: #fff;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.saved-units-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 0;
+    margin-bottom: 8px;
+}

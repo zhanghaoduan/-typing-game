@@ -101,6 +101,7 @@ ensureColumn('units', 'publisher', "TEXT DEFAULT ''");
 ensureColumn('units', 'grade',     "TEXT DEFAULT ''");
 ensureColumn('units', 'book',      "TEXT DEFAULT ''");
 ensureColumn('units', 'unit_no',   "INTEGER DEFAULT 0");
+ensureColumn('users', 'grade',     "TEXT DEFAULT ''");
 
 // Backfill unit_no by extracting "Unit N" from name, where empty/zero
 try {

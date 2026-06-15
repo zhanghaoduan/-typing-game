@@ -8,6 +8,32 @@ const AuthUI = (() => {
     let currentUser = null;
     let token = null;
 
+    // Shared grade list (also used by ocr.js for filtering)
+    const GRADE_LIST = [
+        '小学三年级上','小学三年级下','小学四年级上','小学四年级下','小学五年级上','小学五年级下','小学六年级上','小学六年级下',
+        '初一上','初一下','初二上','初二下','初三上','初三下',
+        '高一上','高一下','高二上','高二下','高三上','高三下'
+    ];
+
+    function populateGradeSelect(selectEl, current) {
+        if (!selectEl) return;
+        // Keep first placeholder option, append grade options
+        const placeholder = selectEl.querySelector('option[value=""]');
+        selectEl.innerHTML = '';
+        if (placeholder) selectEl.appendChild(placeholder);
+        else {
+            const ph = document.createElement('option');
+            ph.value = ''; ph.textContent = '请选择 Please choose';
+            selectEl.appendChild(ph);
+        }
+        GRADE_LIST.forEach(g => {
+            const opt = document.createElement('option');
+            opt.value = g; opt.textContent = g;
+            if (current && current === g) opt.selected = true;
+            selectEl.appendChild(opt);
+        });
+    }
+
     function init() {
         // Load saved token
         token = localStorage.getItem('typing_game_token');
@@ -19,6 +45,9 @@ const AuthUI = (() => {
                 currentUser = null;
             }
         }
+
+        // Pre-populate register form grade
+        populateGradeSelect(document.getElementById('register-grade'));
 
         // Update UI based on login state
         updateAuthUI();
@@ -53,10 +82,26 @@ const AuthUI = (() => {
             if (res.status === 401) {
                 logout();
             } else {
+                // Refresh profile (so we always have up-to-date grade)
+                try {
+                    const pres = await fetch(`${API_BASE}/me/profile`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (pres.ok) {
+                        const pdata = await pres.json();
+                        if (pdata.user) {
+                            currentUser = { ...currentUser, ...pdata.user };
+                            localStorage.setItem('typing_game_user', JSON.stringify(currentUser));
+                            updateAuthUI();
+                        }
+                    }
+                } catch (e) { /* ignore */ }
+
                 if (typeof Storage !== 'undefined' && Storage.syncFromServer) {
                     await Storage.syncFromServer();
                     if (typeof App !== 'undefined' && App.updateHomeStats) App.updateHomeStats();
                 }
+                maybePromptGrade();
             }
         } catch (e) {
             // Network error, keep token for offline use
@@ -86,18 +131,19 @@ const AuthUI = (() => {
                 if (typeof App !== 'undefined' && App.updateHomeStats) App.updateHomeStats();
             }
             App.showPage('page-home');
+            maybePromptGrade();
             return { success: true };
         } catch (e) {
             return { success: false, error: e.message };
         }
     }
 
-    async function register(username, password) {
+    async function register(username, password, grade) {
         try {
             const res = await fetch(`${API_BASE}/auth/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({ username, password, grade: grade || '' })
             });
             const data = await res.json();
 
@@ -115,6 +161,7 @@ const AuthUI = (() => {
                 if (typeof App !== 'undefined' && App.updateHomeStats) App.updateHomeStats();
             }
             App.showPage('page-home');
+            maybePromptGrade();
             return { success: true };
         } catch (e) {
             return { success: false, error: e.message };
@@ -138,10 +185,14 @@ const AuthUI = (() => {
 
         if (userInfo) {
             if (isLoggedIn()) {
+                const gradeBadge = currentUser.grade
+                    ? `<span class="user-grade-badge" title="点击修改 Click to change" onclick="AuthUI.openSetGrade(false)">🎓 ${escapeHtmlAttr(currentUser.grade)}</span>`
+                    : `<button class="btn btn-small btn-outline" onclick="AuthUI.openSetGrade(false)">选择年级 Set Grade</button>`;
                 userInfo.innerHTML = `
                     <span class="user-badge ${isAdmin() ? 'admin' : ''}">
-                        ${isAdmin() ? '👑' : '👤'} ${currentUser.username}
+                        ${isAdmin() ? '👑' : '👤'} ${escapeHtmlAttr(currentUser.username)}
                     </span>
+                    ${gradeBadge}
                     <button class="btn btn-small btn-outline" title="修改密码 Change Password" onclick="AuthUI.openChangePassword()">⚙</button>
                     <button class="btn btn-small btn-outline" onclick="AuthUI.logout()">退出 Logout</button>
                 `;
@@ -180,6 +231,8 @@ const AuthUI = (() => {
         const username = document.getElementById('register-username').value.trim();
         const password = document.getElementById('register-password').value;
         const confirm = document.getElementById('register-confirm').value;
+        const gradeEl = document.getElementById('register-grade');
+        const grade = gradeEl ? gradeEl.value : '';
         const errorEl = document.getElementById('register-error');
 
         if (!username || !password) {
@@ -192,8 +245,13 @@ const AuthUI = (() => {
             return;
         }
 
+        if (!grade) {
+            errorEl.textContent = '请选择年级 Please choose your grade';
+            return;
+        }
+
         errorEl.textContent = '';
-        register(username, password).then(result => {
+        register(username, password, grade).then(result => {
             if (!result.success) {
                 errorEl.textContent = result.error;
             }
@@ -276,6 +334,71 @@ const AuthUI = (() => {
         }
     }
 
+    // ========== Set Grade modal ==========
+    let _gradePromptForced = false;
+
+    function maybePromptGrade() {
+        if (!isLoggedIn()) return;
+        if (currentUser && !currentUser.grade && currentUser.role !== 'admin') {
+            openSetGrade(true);
+        }
+    }
+
+    function openSetGrade(forced) {
+        const modal = document.getElementById('modal-set-grade');
+        if (!modal) return;
+        _gradePromptForced = !!forced;
+        const sel = document.getElementById('sg-grade');
+        populateGradeSelect(sel, currentUser ? currentUser.grade : '');
+        document.getElementById('sg-error').textContent = '';
+        const cancelBtn = document.getElementById('sg-cancel');
+        if (cancelBtn) cancelBtn.style.display = forced ? 'inline-block' : 'inline-block';
+        modal.style.display = 'flex';
+    }
+
+    function closeSetGrade() {
+        const modal = document.getElementById('modal-set-grade');
+        if (modal) modal.style.display = 'none';
+    }
+
+    async function submitSetGrade() {
+        const sel = document.getElementById('sg-grade');
+        const errEl = document.getElementById('sg-error');
+        errEl.textContent = '';
+        const grade = sel ? sel.value : '';
+        if (!grade) {
+            errEl.textContent = '请选择年级 Please choose a grade';
+            return;
+        }
+        try {
+            const res = await apiRequest('/me/profile', {
+                method: 'PUT',
+                body: JSON.stringify({ grade })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                errEl.textContent = data.error || '保存失败 Failed';
+                return;
+            }
+            currentUser = { ...currentUser, ...data.user };
+            localStorage.setItem('typing_game_user', JSON.stringify(currentUser));
+            updateAuthUI();
+            closeSetGrade();
+            // Refresh "我的作业本" if currently rendered, so default filter applies
+            if (typeof ImageOCR !== 'undefined' && ImageOCR.renderSavedUnits) {
+                try { ImageOCR.renderSavedUnits(); } catch (e) {}
+            }
+        } catch (e) {
+            errEl.textContent = e.message || '保存失败 Failed';
+        }
+    }
+
+    function escapeHtmlAttr(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     return {
         init,
         getToken,
@@ -292,6 +415,10 @@ const AuthUI = (() => {
         updateAuthUI,
         openChangePassword,
         closeChangePassword,
-        submitChangePassword
+        submitChangePassword,
+        openSetGrade,
+        closeSetGrade,
+        submitSetGrade,
+        GRADE_LIST
     };
 })();

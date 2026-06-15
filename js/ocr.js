@@ -23,7 +23,10 @@ const ImageOCR = (() => {
 
     // Sort/filter mode for the saved units list (persisted)
     const SORT_KEY = 'savedUnitsSortMode';
+    const GRADE_FILTER_KEY = 'savedUnitsGradeFilter';
     let sortMode = (typeof localStorage !== 'undefined' && localStorage.getItem(SORT_KEY)) || 'unit';
+    // null = use user's profile grade, '' (after explicit "全部") = no filter, otherwise specific grade
+    let gradeFilter = null;
 
     const PUBLISHER_OPTIONS = ['外研版', '人教版', '译林版', '北师大版', '冀教版', '沪教版', '牛津版'];
     const GRADE_OPTIONS = [
@@ -66,6 +69,12 @@ const ImageOCR = (() => {
                 handleFile(e.dataTransfer.files[0]);
             }
         });
+
+        // Restore saved filter (if explicitly set by user previously)
+        try {
+            const stored = localStorage.getItem(GRADE_FILTER_KEY);
+            if (stored !== null) gradeFilter = stored;  // '' means All; specific grade string keeps it
+        } catch (e) {}
 
         // Render saved units list
         renderSavedUnits();
@@ -1104,15 +1113,47 @@ const ImageOCR = (() => {
         return html;
     }
 
-    // Toolbar with sort toggle
+    // Toolbar with sort toggle + grade filter
     function buildSortToolbar() {
+        const userGrade = getUserGrade();
+        const effectiveFilter = getEffectiveGradeFilter();
+        const allSel = (effectiveFilter === '') ? ' selected' : '';
         return `<div class="saved-units-toolbar">
-            <span style="color:#666;font-size:0.9em;">排序 Sort:</span>
+            <span style="color:#666;font-size:0.9em;">年级 Grade:</span>
+            <select class="grade-filter-select" onchange="ImageOCR.setGradeFilter(this.value)">
+                <option value="__ALL__"${allSel}>全部年级 All grades</option>
+                ${GRADE_OPTIONS.map(g => {
+                    const sel = (effectiveFilter === g) ? ' selected' : '';
+                    const label = g + (g === userGrade ? ' (我的)' : '');
+                    return `<option value="${escapeHtml(g)}"${sel}>${escapeHtml(label)}</option>`;
+                }).join('')}
+            </select>
+            <span style="color:#666;font-size:0.9em;margin-left:12px;">排序 Sort:</span>
             <button class="btn btn-small ${sortMode === 'unit' ? 'btn-primary' : 'btn-outline'}"
                     onclick="ImageOCR.setSortMode('unit')">按 Unit 号 By Unit#</button>
             <button class="btn btn-small ${sortMode === 'time' ? 'btn-primary' : 'btn-outline'}"
                     onclick="ImageOCR.setSortMode('time')">按时间 By Time</button>
         </div>`;
+    }
+
+    function getUserGrade() {
+        try {
+            const u = (typeof AuthUI !== 'undefined' && AuthUI.getUser) ? AuthUI.getUser() : null;
+            return (u && u.grade) ? u.grade : '';
+        } catch (e) { return ''; }
+    }
+
+    // null filter = default to user's profile grade (if any); otherwise use stored filter
+    function getEffectiveGradeFilter() {
+        if (gradeFilter !== null) return gradeFilter;
+        return getUserGrade();   // empty string if no profile grade -> shows all
+    }
+
+    function setGradeFilter(val) {
+        // val is either '__ALL__' or a grade string from <select>
+        gradeFilter = (val === '__ALL__') ? '' : String(val || '');
+        try { localStorage.setItem(GRADE_FILTER_KEY, gradeFilter); } catch (e) {}
+        renderSavedUnits();
     }
 
     function setSortMode(mode) {
@@ -1140,20 +1181,36 @@ const ImageOCR = (() => {
 
             let html = buildSortToolbar();
 
+            // Filter by selected grade (or user's profile grade by default)
+            const filt = getEffectiveGradeFilter();
+            const applyFilter = (arr) => {
+                if (!filt) return arr;
+                return arr.filter(u => (u.grade || '') === filt);
+            };
+            const myFiltered = applyFilter(myUnits);
+            const pubFiltered = applyFilter(publicUnits);
+
+            if (filt && myFiltered.length === 0 && pubFiltered.length === 0) {
+                html += `<p class="empty-hint">该年级暂无内容（共 ${myUnits.length + publicUnits.length} 个其他年级）。请切换"全部年级"或选择其他。</p>`;
+                container.innerHTML = html;
+                _cachedServerUnits = [...myUnits, ...publicUnits];
+                return;
+            }
+
             html += renderUnitGroup(
-                myUnits,
+                myFiltered,
                 '<h4 style="margin:8px 0;color:var(--primary);">📁 我的单元 My Units</h4>',
                 { showAuthor: false }
             );
             html += renderUnitGroup(
-                publicUnits,
+                pubFiltered,
                 '<h4 style="margin:16px 0 8px;color:var(--success);">🌍 公共库 Public Library</h4>',
                 { showAuthor: true }
             );
 
             container.innerHTML = html;
 
-            // Cache server units locally for practice
+            // Cache server units locally for practice (unfiltered, so "play" still works)
             _cachedServerUnits = [...myUnits, ...publicUnits];
             return;
         }
@@ -1403,6 +1460,7 @@ const ImageOCR = (() => {
         practiceServerUnit,
         editServerUnit,
         deleteServerUnit,
-        setSortMode
+        setSortMode,
+        setGradeFilter
     };
 })();
