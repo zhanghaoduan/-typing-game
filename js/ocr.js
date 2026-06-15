@@ -593,27 +593,28 @@ const ImageOCR = (() => {
         });
     }
 
-    // Async: ask the backend to translate everything still missing, then update DOM in place
+    // Async: ask the backend to translate ALL items, and override the local-dict
+    // placeholders with the richer ECDICT (POS-tagged) results when available.
     async function fetchRemoteTranslations() {
-        const missing = [];
+        const all = [];
         ['words', 'phrases', 'sentences'].forEach(type => {
             recognizedData[type].forEach(item => {
-                if (item.en && !item.cn) missing.push(item.en);
+                if (item.en) all.push(item.en);
             });
         });
-        if (missing.length === 0) return;
+        if (all.length === 0) return;
         try {
             const res = await fetch('/api/translate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ texts: missing })
+                body: JSON.stringify({ texts: all })
             });
             if (!res.ok) return;
             const data = await res.json();
             const map = (data && data.translations) || {};
             ['words', 'phrases', 'sentences'].forEach(type => {
                 recognizedData[type].forEach((item, idx) => {
-                    if (item.en && !item.cn && map[item.en]) {
+                    if (item.en && map[item.en] && map[item.en] !== item.cn) {
                         item.cn = map[item.en];
                         // Update the on-screen input/textarea if it exists
                         const sel = `.proofread-section[data-type="${type}"] .proofread-cn[data-idx="${idx}"]`;
