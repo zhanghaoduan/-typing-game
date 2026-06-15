@@ -83,6 +83,9 @@
                 <button class="btn btn-danger btn-large" id="admin-panel-btn" style="display:none;" onclick="App.showPage('page-admin')">
                     👑 管理面板 Admin Panel
                 </button>
+                <button class="btn btn-outline btn-large" onclick="App.showPage('page-profile')">
+                    👤 我的中心 My Profile
+                </button>
             </div>
             <div class="home-footer">
                 <button class="btn btn-small" onclick="App.showPage('page-settings')">⚙️ 设置 Settings</button>
@@ -403,11 +406,81 @@
             <h2>👑 管理面板 Admin Panel</h2>
         </div>
         <div class="admin-content">
-            <div class="admin-section">
-                <h3>📂 所有用户的单元 All Users' Units</h3>
-                <div id="admin-units-list">
-                    <p class="empty-hint">加载中... Loading...</p>
+            <div class="admin-tab-bar">
+                <button class="admin-tab-btn active" data-admin-tab="units" onclick="App.showAdminTab('units')">📚 单元管理 Units</button>
+                <button class="admin-tab-btn" data-admin-tab="users" onclick="App.showAdminTab('users')">👥 用户管理 Users</button>
+                <button class="admin-tab-btn" data-admin-tab="rankings" onclick="App.showAdminTab('rankings')">🏆 排行榜 Rankings</button>
+            </div>
+            <div id="admin-tab-units" class="admin-tab-content active">
+                <div class="admin-section">
+                    <h3>📂 所有用户的单元 All Users' Units</h3>
+                    <div id="admin-units-list">
+                        <p class="empty-hint">加载中... Loading...</p>
+                    </div>
                 </div>
+            </div>
+            <div id="admin-tab-users" class="admin-tab-content" style="display:none;">
+                <div class="admin-section">
+                    <h3>👥 所有用户 All Users</h3>
+                    <div id="admin-users-list">
+                        <p class="empty-hint">加载中... Loading...</p>
+                    </div>
+                </div>
+            </div>
+            <div id="admin-tab-rankings" class="admin-tab-content" style="display:none;">
+                <div class="admin-section">
+                    <h3>🏆 排行榜 Rankings</h3>
+                    <div class="admin-rank-tabs">
+                        <button class="btn btn-small btn-outline rank-sub-btn active" data-rank-type="score" onclick="App.renderAdminRankings('score')">成绩 Score</button>
+                        <button class="btn btn-small btn-outline rank-sub-btn" data-rank-type="time" onclick="App.renderAdminRankings('time')">学习时长 Time</button>
+                        <button class="btn btn-small btn-outline rank-sub-btn" data-rank-type="streak" onclick="App.renderAdminRankings('streak')">连续登录 Streak</button>
+                        <button class="btn btn-small btn-outline rank-sub-btn" data-rank-type="login_days" onclick="App.renderAdminRankings('login_days')">登录天数 Login Days</button>
+                    </div>
+                    <div id="admin-rankings-list">
+                        <p class="empty-hint">加载中... Loading...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== PROFILE PAGE ========== -->
+    <div id="page-profile" class="page">
+        <div class="page-header">
+            <button class="btn-back" onclick="App.showPage('page-home')">← 返回</button>
+            <h2>👤 我的中心 My Profile</h2>
+        </div>
+        <div class="profile-content">
+            <div class="profile-section">
+                <h3>📋 基础信息 Basic Info</h3>
+                <div id="profile-basic"><p class="empty-hint">加载中... Loading...</p></div>
+            </div>
+            <div class="profile-section">
+                <h3>📊 学习统计 Learning Stats</h3>
+                <div id="profile-stats"><p class="empty-hint">加载中... Loading...</p></div>
+            </div>
+            <div class="profile-section">
+                <h3>📝 最近练习 Recent Practice</h3>
+                <div id="profile-history"><p class="empty-hint">加载中... Loading...</p></div>
+            </div>
+            <div class="profile-actions">
+                <button class="btn btn-primary" onclick="AuthUI.openChangePassword()">🔑 修改密码 Change Password</button>
+                <button class="btn btn-outline" onclick="App.showPage('page-home')">🏠 返回首页 Home</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== CHANGE PASSWORD MODAL ========== -->
+    <div id="modal-change-password" class="modal" style="display:none;">
+        <div class="modal-content">
+            <h3>🔑 修改密码 Change Password</h3>
+            <input id="cp-old" type="password" placeholder="旧密码 Old password" style="width:100%;margin:8px 0;padding:10px;" />
+            <input id="cp-new" type="password" placeholder="新密码 New password (≥4)" style="width:100%;margin:8px 0;padding:10px;" />
+            <input id="cp-confirm" type="password" placeholder="确认新密码 Confirm" style="width:100%;margin:8px 0;padding:10px;" />
+            <p id="cp-error" class="auth-error"></p>
+            <div class="modal-actions">
+                <button class="btn btn-outline" onclick="AuthUI.closeChangePassword()">取消 Cancel</button>
+                <button class="btn btn-primary" onclick="AuthUI.submitChangePassword()">确认 Submit</button>
             </div>
         </div>
     </div>

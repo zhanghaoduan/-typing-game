@@ -573,6 +573,21 @@ const Game = (() => {
             Storage.addLeaderboardEntry(storageData.playerName, state.score);
         }
 
+        // Report practice session to server (if logged in)
+        try {
+            const durationMs = Math.max(0, Date.now() - (state.startTime || Date.now()));
+            const refId = state.isLevelMode ? state.level : (state.currentModule || 0);
+            Storage.reportPractice({
+                kind: state.isLevelMode ? 'level' : 'module',
+                ref_id: String(refId == null ? '' : refId),
+                score: state.score,
+                stars: stars,
+                correct: state.correct,
+                attempts: state.correct + state.wrong,
+                duration_ms: durationMs
+            });
+        } catch (e) { /* ignore */ }
+
         // Check badges
         const newBadges = checkBadges();
 

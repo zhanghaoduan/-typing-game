@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
-const { generateToken } = require('../auth');
+const { generateToken, authenticate } = require('../auth');
 
 const router = express.Router();
 
@@ -31,6 +31,7 @@ router.post('/register', (req, res) => {
     const result = db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run(username, hashedPassword);
 
     const user = { id: result.lastInsertRowid, username, role: 'user' };
+    db.prepare('INSERT OR IGNORE INTO user_stats (user_id) VALUES (?)').run(user.id);
     const token = generateToken(user);
 
     res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
@@ -54,7 +55,29 @@ router.post('/login', (req, res) => {
     }
 
     const token = generateToken(user);
+    db.prepare('INSERT OR IGNORE INTO user_stats (user_id) VALUES (?)').run(user.id);
     res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
+});
+
+// Change password (authenticated)
+router.post('/change-password', authenticate, (req, res) => {
+    const { oldPassword, newPassword } = req.body || {};
+    if (!oldPassword || !newPassword) {
+        return res.status(400).json({ error: '请输入旧密码和新密码 Old and new password required' });
+    }
+    if (newPassword.length < 4) {
+        return res.status(400).json({ error: '新密码至少4个字符 New password must be at least 4 characters' });
+    }
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    if (!user) {
+        return res.status(401).json({ error: '用户不存在 User not found' });
+    }
+    if (!bcrypt.compareSync(oldPassword, user.password)) {
+        return res.status(401).json({ error: '旧密码错误 Old password incorrect' });
+    }
+    const hashed = bcrypt.hashSync(newPassword, 10);
+    db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashed, user.id);
+    res.json({ success: true, message: '密码已修改 Password updated' });
 });
 
 module.exports = router;

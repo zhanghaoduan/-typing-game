@@ -52,6 +52,11 @@ const AuthUI = (() => {
             });
             if (res.status === 401) {
                 logout();
+            } else {
+                if (typeof Storage !== 'undefined' && Storage.syncFromServer) {
+                    await Storage.syncFromServer();
+                    if (typeof App !== 'undefined' && App.updateHomeStats) App.updateHomeStats();
+                }
             }
         } catch (e) {
             // Network error, keep token for offline use
@@ -76,6 +81,10 @@ const AuthUI = (() => {
             localStorage.setItem('typing_game_token', token);
             localStorage.setItem('typing_game_user', JSON.stringify(currentUser));
             updateAuthUI();
+            if (typeof Storage !== 'undefined' && Storage.syncFromServer) {
+                await Storage.syncFromServer();
+                if (typeof App !== 'undefined' && App.updateHomeStats) App.updateHomeStats();
+            }
             App.showPage('page-home');
             return { success: true };
         } catch (e) {
@@ -101,6 +110,10 @@ const AuthUI = (() => {
             localStorage.setItem('typing_game_token', token);
             localStorage.setItem('typing_game_user', JSON.stringify(currentUser));
             updateAuthUI();
+            if (typeof Storage !== 'undefined' && Storage.syncFromServer) {
+                await Storage.syncFromServer();
+                if (typeof App !== 'undefined' && App.updateHomeStats) App.updateHomeStats();
+            }
             App.showPage('page-home');
             return { success: true };
         } catch (e) {
@@ -129,6 +142,7 @@ const AuthUI = (() => {
                     <span class="user-badge ${isAdmin() ? 'admin' : ''}">
                         ${isAdmin() ? '👑' : '👤'} ${currentUser.username}
                     </span>
+                    <button class="btn btn-small btn-outline" title="修改密码 Change Password" onclick="AuthUI.openChangePassword()">⚙</button>
                     <button class="btn btn-small btn-outline" onclick="AuthUI.logout()">退出 Logout</button>
                 `;
                 userInfo.style.display = 'flex';
@@ -211,6 +225,57 @@ const AuthUI = (() => {
         return res;
     }
 
+    // Change password modal
+    function openChangePassword() {
+        const modal = document.getElementById('modal-change-password');
+        if (!modal) return;
+        document.getElementById('cp-old').value = '';
+        document.getElementById('cp-new').value = '';
+        document.getElementById('cp-confirm').value = '';
+        document.getElementById('cp-error').textContent = '';
+        modal.style.display = 'flex';
+    }
+
+    function closeChangePassword() {
+        const modal = document.getElementById('modal-change-password');
+        if (modal) modal.style.display = 'none';
+    }
+
+    async function submitChangePassword() {
+        const oldPassword = document.getElementById('cp-old').value;
+        const newPassword = document.getElementById('cp-new').value;
+        const confirmPwd = document.getElementById('cp-confirm').value;
+        const errEl = document.getElementById('cp-error');
+        errEl.textContent = '';
+        if (!oldPassword || !newPassword) {
+            errEl.textContent = '请输入旧密码和新密码 Please enter old and new password';
+            return;
+        }
+        if (newPassword.length < 4) {
+            errEl.textContent = '新密码至少4个字符 New password must be at least 4 characters';
+            return;
+        }
+        if (newPassword !== confirmPwd) {
+            errEl.textContent = '两次密码不一致 Passwords do not match';
+            return;
+        }
+        try {
+            const res = await apiRequest('/auth/change-password', {
+                method: 'POST',
+                body: JSON.stringify({ oldPassword, newPassword })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                errEl.textContent = data.error || '修改失败 Failed';
+                return;
+            }
+            alert('密码已修改 Password updated');
+            closeChangePassword();
+        } catch (e) {
+            errEl.textContent = e.message || '修改失败 Failed';
+        }
+    }
+
     return {
         init,
         getToken,
@@ -224,6 +289,9 @@ const AuthUI = (() => {
         handleRegister,
         showTab,
         apiRequest,
-        updateAuthUI
+        updateAuthUI,
+        openChangePassword,
+        closeChangePassword,
+        submitChangePassword
     };
 })();

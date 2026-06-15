@@ -5,6 +5,14 @@
 
 const Storage = (() => {
     const PREFIX = 'typing_game_';
+    const SERVER_FIELDS = [
+        'stars', 'coins', 'streak', 'lastPlayDate', 'levelsUnlocked',
+        'levelStars', 'levelScores', 'badges',
+        'totalCorrect', 'totalAttempts', 'totalWordsTyped',
+        'gamesPlayed', 'maxCombo'
+    ];
+    let _syncTimer = null;
+    let _suppressSync = false;
 
     // Default data structure
     const defaultData = {
@@ -39,8 +47,90 @@ const Storage = (() => {
     }
 
     // Save all data
-    function saveData(data) {
+    function _writeLocal(data) {
         localStorage.setItem(PREFIX + 'data', JSON.stringify(data));
+    }
+
+    function saveData(data) {
+        _writeLocal(data);
+        if (!_suppressSync) _scheduleSync();
+    }
+
+    function _scheduleSync() {
+        if (typeof AuthUI === 'undefined' || !AuthUI.isLoggedIn || !AuthUI.isLoggedIn()) return;
+        if (_syncTimer) clearTimeout(_syncTimer);
+        _syncTimer = setTimeout(syncToServer, 1500);
+    }
+
+    // camelCase <-> snake_case mapping for server fields
+    const TO_SNAKE = {
+        stars: 'stars', coins: 'coins', streak: 'streak',
+        lastPlayDate: 'last_play_date', levelsUnlocked: 'levels_unlocked',
+        levelStars: 'level_stars', levelScores: 'level_scores', badges: 'badges',
+        totalCorrect: 'total_correct', totalAttempts: 'total_attempts',
+        totalWordsTyped: 'total_words_typed', gamesPlayed: 'games_played',
+        maxCombo: 'max_combo'
+    };
+
+    async function syncToServer() {
+        if (typeof AuthUI === 'undefined' || !AuthUI.isLoggedIn()) return;
+        const data = getData();
+        const payload = {};
+        for (const k of SERVER_FIELDS) {
+            const serverKey = TO_SNAKE[k];
+            payload[serverKey] = data[k];
+        }
+        try {
+            await AuthUI.apiRequest('/me/stats', {
+                method: 'PUT',
+                body: JSON.stringify(payload)
+            });
+        } catch (e) {
+            // silent — offline or session expired
+        }
+    }
+
+    async function syncFromServer() {
+        if (typeof AuthUI === 'undefined' || !AuthUI.isLoggedIn()) return;
+        try {
+            const res = await AuthUI.apiRequest('/me/stats');
+            const json = await res.json();
+            if (!json || !json.stats) return;
+            const s = json.stats;
+            const local = getData();
+            const merged = { ...local,
+                stars: s.stars || 0,
+                coins: s.coins || 0,
+                streak: s.streak || 0,
+                lastPlayDate: s.last_play_date || local.lastPlayDate,
+                levelsUnlocked: s.levels_unlocked || 1,
+                levelStars: s.level_stars || {},
+                levelScores: s.level_scores || {},
+                badges: Array.isArray(s.badges) ? s.badges : [],
+                totalCorrect: s.total_correct || 0,
+                totalAttempts: s.total_attempts || 0,
+                totalWordsTyped: s.total_words_typed || 0,
+                gamesPlayed: s.games_played || 0,
+                maxCombo: s.max_combo || 0
+            };
+            _suppressSync = true;
+            _writeLocal(merged);
+            _suppressSync = false;
+        } catch (e) {
+            // silent
+        }
+    }
+
+    async function reportPractice(payload) {
+        if (typeof AuthUI === 'undefined' || !AuthUI.isLoggedIn()) return;
+        try {
+            await AuthUI.apiRequest('/me/practice', {
+                method: 'POST',
+                body: JSON.stringify(payload || {})
+            });
+        } catch (e) {
+            // silent
+        }
     }
 
     // Update specific field(s)
@@ -188,6 +278,9 @@ const Storage = (() => {
         earnBadge,
         addLeaderboardEntry,
         savePlayerName,
-        resetAll
+        resetAll,
+        syncFromServer,
+        syncToServer,
+        reportPractice
     };
 })();

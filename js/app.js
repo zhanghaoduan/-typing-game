@@ -54,6 +54,7 @@ const App = (() => {
         if (pageId === 'page-review') renderReview();
         if (pageId === 'page-levels') renderLevels();
         if (pageId === 'page-admin') renderAdminPanel();
+        if (pageId === 'page-profile') renderProfile();
         if (pageId === 'page-upload' && AuthUI.isLoggedIn()) {
             if (typeof ImageOCR !== 'undefined') ImageOCR.renderSavedUnits();
         }
@@ -305,6 +306,213 @@ const App = (() => {
         }
     }
 
+    // Format ms -> "Xm Ys"
+    function formatDuration(ms) {
+        ms = Number(ms) || 0;
+        const totalSec = Math.floor(ms / 1000);
+        const m = Math.floor(totalSec / 60);
+        const s = totalSec % 60;
+        if (m === 0) return `${s}s`;
+        return `${m}m ${s}s`;
+    }
+
+    function escapeHtml(str) {
+        return String(str == null ? '' : str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // ============== PROFILE ==============
+    async function renderProfile() {
+        const basicEl = document.getElementById('profile-basic');
+        const statsEl = document.getElementById('profile-stats');
+        const histEl = document.getElementById('profile-history');
+        if (!AuthUI.isLoggedIn()) {
+            if (basicEl) basicEl.innerHTML = '<p class="empty-hint">请先登录 Please login</p>';
+            return;
+        }
+        const user = AuthUI.getUser() || {};
+        if (basicEl) {
+            basicEl.innerHTML = `
+                <div class="profile-info-row"><span>用户名 Username</span><strong>${escapeHtml(user.username)}</strong></div>
+                <div class="profile-info-row"><span>角色 Role</span><strong>${user.role === 'admin' ? '👑 管理员 Admin' : '👤 用户 User'}</strong></div>
+                <div class="profile-info-row"><span>用户ID User ID</span><strong>${user.id}</strong></div>
+            `;
+        }
+        try {
+            const res = await AuthUI.apiRequest('/me/stats');
+            const json = await res.json();
+            const s = (json && json.stats) || {};
+            if (statsEl) {
+                statsEl.innerHTML = `
+                    <div class="profile-info-row"><span>⭐ 星星 Stars</span><strong>${s.stars || 0}</strong></div>
+                    <div class="profile-info-row"><span>🪙 金币 Coins</span><strong>${s.coins || 0}</strong></div>
+                    <div class="profile-info-row"><span>🔥 连续天数 Streak</span><strong>${s.streak || 0}</strong></div>
+                    <div class="profile-info-row"><span>🎮 完成局数 Games Played</span><strong>${s.games_played || 0}</strong></div>
+                    <div class="profile-info-row"><span>⏱️ 总时长 Total Time</span><strong>${formatDuration(s.total_time_ms)}</strong></div>
+                    <div class="profile-info-row"><span>✅ 答对 Correct</span><strong>${s.total_correct || 0} / ${s.total_attempts || 0}</strong></div>
+                `;
+            }
+        } catch (e) {
+            if (statsEl) statsEl.innerHTML = '<p class="empty-hint">加载失败 Failed to load</p>';
+        }
+        try {
+            const res = await AuthUI.apiRequest('/me/practice-history?limit=30');
+            const json = await res.json();
+            const list = (json && json.history) || [];
+            if (histEl) {
+                if (list.length === 0) {
+                    histEl.innerHTML = '<p class="empty-hint">暂无练习记录 No practice records yet</p>';
+                } else {
+                    let html = '<table class="profile-history-table"><thead><tr>'
+                        + '<th>时间 Time</th><th>类型 Kind</th><th>编号 Ref</th>'
+                        + '<th>分数 Score</th><th>⭐</th><th>正确率 Acc</th><th>时长 Dur</th>'
+                        + '</tr></thead><tbody>';
+                    list.forEach(r => {
+                        const acc = r.attempts > 0 ? Math.round((r.correct / r.attempts) * 100) + '%' : '-';
+                        const t = r.created_at ? new Date(r.created_at + 'Z').toLocaleString() : '';
+                        html += `<tr>
+                            <td>${escapeHtml(t)}</td>
+                            <td>${escapeHtml(r.kind)}</td>
+                            <td>${escapeHtml(r.ref_id)}</td>
+                            <td>${r.score}</td>
+                            <td>${'⭐'.repeat(r.stars || 0)}</td>
+                            <td>${acc}</td>
+                            <td>${formatDuration(r.duration_ms)}</td>
+                        </tr>`;
+                    });
+                    html += '</tbody></table>';
+                    histEl.innerHTML = html;
+                }
+            }
+        } catch (e) {
+            if (histEl) histEl.innerHTML = '<p class="empty-hint">加载失败 Failed to load</p>';
+        }
+    }
+
+    // ============== ADMIN TABS ==============
+    function showAdminTab(tabName) {
+        document.querySelectorAll('.admin-tab-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.adminTab === tabName);
+        });
+        document.querySelectorAll('.admin-tab-content').forEach(c => {
+            c.style.display = 'none';
+        });
+        const target = document.getElementById('admin-tab-' + tabName);
+        if (target) target.style.display = 'block';
+        if (tabName === 'units') renderAdminPanel();
+        else if (tabName === 'users') renderAdminUsers();
+        else if (tabName === 'rankings') renderAdminRankings('score');
+    }
+
+    async function renderAdminUsers() {
+        const container = document.getElementById('admin-users-list');
+        if (!container) return;
+        container.innerHTML = '<p class="empty-hint">加载中... Loading...</p>';
+        try {
+            const res = await AuthUI.apiRequest('/admin/users');
+            const data = await res.json();
+            const users = data.users || [];
+            if (users.length === 0) {
+                container.innerHTML = '<p class="empty-hint">暂无用户 No users</p>';
+                return;
+            }
+            const me = AuthUI.getUser() || {};
+            let html = '<table class="admin-users-table"><thead><tr>'
+                + '<th>用户名 User</th><th>角色 Role</th><th>⭐</th><th>🪙</th><th>🔥</th>'
+                + '<th>时长 Time</th><th>登录天数 Days</th><th>注册 Registered</th><th>操作 Actions</th>'
+                + '</tr></thead><tbody>';
+            users.forEach(u => {
+                const isMe = u.id === me.id;
+                const reg = u.created_at ? new Date(u.created_at + 'Z').toLocaleDateString() : '';
+                html += `<tr>
+                    <td>${escapeHtml(u.username)}</td>
+                    <td>${u.role === 'admin' ? '👑 admin' : 'user'}</td>
+                    <td>${u.stars || 0}</td>
+                    <td>${u.coins || 0}</td>
+                    <td>${u.streak || 0}</td>
+                    <td>${formatDuration(u.total_time_ms)}</td>
+                    <td>${u.login_days || 0}</td>
+                    <td>${escapeHtml(reg)}</td>
+                    <td>
+                        <button class="btn btn-small btn-outline" onclick="App.adminResetPassword(${u.id}, '${escapeHtml(u.username).replace(/'/g, "\\'")}')">🔑 重置密码</button>
+                        ${isMe ? '' : `<button class="btn btn-small btn-danger" onclick="App.adminDeleteUser(${u.id}, '${escapeHtml(u.username).replace(/'/g, "\\'")}')">🗑️ 删除</button>`}
+                    </td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        } catch (e) {
+            container.innerHTML = '<p class="empty-hint">加载失败 Failed to load</p>';
+        }
+    }
+
+    async function adminResetPassword(userId, username) {
+        const newPassword = prompt(`为用户 "${username}" 设置新密码 (≥4 字符)\nNew password for "${username}":`);
+        if (!newPassword) return;
+        if (newPassword.length < 4) { alert('密码至少4个字符 Password must be at least 4 characters'); return; }
+        try {
+            const res = await AuthUI.apiRequest(`/admin/users/${userId}/reset-password`, {
+                method: 'POST',
+                body: JSON.stringify({ newPassword })
+            });
+            const data = await res.json();
+            alert(data.message || (res.ok ? '已重置 Reset' : '失败 Failed'));
+        } catch (e) {
+            alert('操作失败 Operation failed');
+        }
+    }
+
+    async function adminDeleteUser(userId, username) {
+        if (!confirm(`确认删除用户 "${username}" 及其所有数据？\nDelete user "${username}" and all data?`)) return;
+        try {
+            const res = await AuthUI.apiRequest(`/admin/users/${userId}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!res.ok) { alert(data.error || '删除失败 Delete failed'); return; }
+            renderAdminUsers();
+        } catch (e) {
+            alert('删除失败 Delete failed');
+        }
+    }
+
+    async function renderAdminRankings(type) {
+        type = type || 'score';
+        document.querySelectorAll('.rank-sub-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.rankType === type);
+        });
+        const container = document.getElementById('admin-rankings-list');
+        if (!container) return;
+        container.innerHTML = '<p class="empty-hint">加载中... Loading...</p>';
+        try {
+            const res = await AuthUI.apiRequest(`/admin/rankings?type=${encodeURIComponent(type)}&limit=50`);
+            const data = await res.json();
+            const list = data.rankings || [];
+            if (list.length === 0) {
+                container.innerHTML = '<p class="empty-hint">暂无数据 No data</p>';
+                return;
+            }
+            const labelMap = {
+                score: '总分 Total Score',
+                time: '学习时长 Total Time',
+                streak: '连续天数 Streak',
+                login_days: '登录天数 Login Days'
+            };
+            let html = `<table class="admin-rankings-table"><thead><tr>
+                <th>排名 Rank</th><th>用户 User</th><th>${labelMap[type]}</th></tr></thead><tbody>`;
+            list.forEach(r => {
+                const rankIcon = r.rank === 1 ? '🥇' : r.rank === 2 ? '🥈' : r.rank === 3 ? '🥉' : r.rank;
+                let valStr;
+                if (type === 'time') valStr = formatDuration(r.value);
+                else valStr = r.value;
+                html += `<tr><td>${rankIcon}</td><td>${escapeHtml(r.username)}</td><td>${valStr}</td></tr>`;
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        } catch (e) {
+            container.innerHTML = '<p class="empty-hint">加载失败 Failed to load</p>';
+        }
+    }
+
     return {
         init,
         showPage,
@@ -314,7 +522,13 @@ const App = (() => {
         renderAdminPanel,
         publishUnit,
         togglePublic,
-        deleteUnit
+        deleteUnit,
+        renderProfile,
+        showAdminTab,
+        renderAdminUsers,
+        adminResetPassword,
+        adminDeleteUser,
+        renderAdminRankings
     };
 })();
 
