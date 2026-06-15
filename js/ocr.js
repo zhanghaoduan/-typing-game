@@ -11,11 +11,26 @@
 const ImageOCR = (() => {
     let recognizedData = {
         unitName: '',
+        publisher: '',
+        grade: '',
+        book: '',
+        unitNo: 0,
         words: [],
         phrases: [],
         sentences: [],
         raw: ''
     };
+
+    // Sort/filter mode for the saved units list (persisted)
+    const SORT_KEY = 'savedUnitsSortMode';
+    let sortMode = (typeof localStorage !== 'undefined' && localStorage.getItem(SORT_KEY)) || 'unit';
+
+    const PUBLISHER_OPTIONS = ['外研版', '人教版', '译林版', '北师大版', '冀教版', '沪教版', '牛津版'];
+    const GRADE_OPTIONS = [
+        '小学三年级上','小学三年级下','小学四年级上','小学四年级下','小学五年级上','小学五年级下','小学六年级上','小学六年级下',
+        '初一上','初一下','初二上','初二下','初三上','初三下',
+        '高一上','高一下','高二上','高二下','高三上','高三下'
+    ];
 
     // Initialize upload area event listeners
     function init() {
@@ -298,7 +313,14 @@ const ImageOCR = (() => {
 
     // ========== SMART STRUCTURED PARSING ==========
     function smartParse(rawText) {
-        recognizedData = { unitName: '', words: [], phrases: [], sentences: [], raw: rawText };
+        recognizedData = {
+            unitName: '',
+            publisher: recognizedData.publisher || '',
+            grade: recognizedData.grade || '',
+            book: recognizedData.book || '',
+            unitNo: 0,
+            words: [], phrases: [], sentences: [], raw: rawText
+        };
 
         const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
@@ -641,12 +663,21 @@ const ImageOCR = (() => {
 
         let html = '';
 
-        // Unit name input
+        // Unit name & metadata input
+        const unitNoVal = recognizedData.unitNo || (recognizedData.unitName.match(/Unit\s*(\d+)/i)?.[1] ?? '');
         html += `<div class="proofread-header">
             <label>📚 单元名称 Unit Name:</label>
             <input type="text" id="proofread-unit-name" class="proofread-input-title" 
                    value="${escapeHtml(recognizedData.unitName)}" 
                    placeholder="例如: Unit 3 Food matters">
+            <div class="proofread-meta">
+                <input type="text" id="proofread-publisher" list="publisher-options" placeholder="出版社 (如 外研版)" value="${escapeHtml(recognizedData.publisher || '')}">
+                <input type="text" id="proofread-grade" list="grade-options" placeholder="年级学期 (如 初一下)" value="${escapeHtml(recognizedData.grade || '')}">
+                <input type="text" id="proofread-book" placeholder="册次 (可选)" value="${escapeHtml(recognizedData.book || '')}">
+                <input type="number" id="proofread-unit-no" placeholder="Unit#" min="0" value="${escapeHtml(String(unitNoVal))}">
+            </div>
+            <datalist id="publisher-options">${PUBLISHER_OPTIONS.map(p => `<option value="${escapeHtml(p)}">`).join('')}</datalist>
+            <datalist id="grade-options">${GRADE_OPTIONS.map(g => `<option value="${escapeHtml(g)}">`).join('')}</datalist>
         </div>`;
 
         // Words section
@@ -800,6 +831,22 @@ const ImageOCR = (() => {
         if (nameInput) {
             recognizedData.unitName = nameInput.value.trim();
         }
+        // Metadata
+        const pub = document.getElementById('proofread-publisher');
+        const grd = document.getElementById('proofread-grade');
+        const bk  = document.getElementById('proofread-book');
+        const un  = document.getElementById('proofread-unit-no');
+        if (pub) recognizedData.publisher = pub.value.trim();
+        if (grd) recognizedData.grade = grd.value.trim();
+        if (bk)  recognizedData.book = bk.value.trim();
+        if (un) {
+            const n = parseInt(un.value, 10);
+            recognizedData.unitNo = isNaN(n) ? 0 : n;
+        }
+        if (!recognizedData.unitNo) {
+            const m = (recognizedData.unitName || '').match(/Unit\s*(\d+)/i);
+            recognizedData.unitNo = m ? parseInt(m[1], 10) : 0;
+        }
 
         // Collect items from each section
         ['words', 'phrases', 'sentences'].forEach(type => {
@@ -862,7 +909,11 @@ const ImageOCR = (() => {
                     name: unit.name,
                     words: unit.words,
                     phrases: unit.phrases,
-                    sentences: unit.sentences
+                    sentences: unit.sentences,
+                    publisher: unit.publisher || '',
+                    grade: unit.grade || '',
+                    book: unit.book || '',
+                    unit_no: unit.unitNo || 0
                 })
             });
             if (!res.ok) return null;
@@ -882,7 +933,11 @@ const ImageOCR = (() => {
                     name: unit.name,
                     words: unit.words,
                     phrases: unit.phrases,
-                    sentences: unit.sentences
+                    sentences: unit.sentences,
+                    publisher: unit.publisher || '',
+                    grade: unit.grade || '',
+                    book: unit.book || '',
+                    unit_no: unit.unitNo || 0
                 })
             });
             if (!res.ok) return null;
@@ -919,6 +974,10 @@ const ImageOCR = (() => {
             id: 'custom_' + Date.now(),
             name: unitName,
             createdAt: new Date().toISOString(),
+            publisher: recognizedData.publisher || '',
+            grade: recognizedData.grade || '',
+            book: recognizedData.book || '',
+            unitNo: recognizedData.unitNo || 0,
             words: [...recognizedData.words],
             phrases: [...recognizedData.phrases],
             sentences: [...recognizedData.sentences]
@@ -978,6 +1037,90 @@ const ImageOCR = (() => {
         alert(`✅ 已保存 "${unitName}"\n单词: ${unit.words.length} | 词组: ${unit.phrases.length} | 句子: ${unit.sentences.length}\n\nSaved! Words: ${unit.words.length} | Phrases: ${unit.phrases.length} | Sentences: ${unit.sentences.length}`);
     }
 
+    // Build a card HTML for a unit (used by both my/public sections)
+    function buildUnitCardHtml(unit, opts) {
+        const date = new Date(unit.created_at).toLocaleDateString('zh-CN');
+        const total = (unit.words || []).length + (unit.phrases || []).length + (unit.sentences || []).length;
+        const badge = unit.is_public ? '<span class="public-badge">公开</span>' : '';
+        const author = opts && opts.showAuthor ? `👤 ${escapeHtml(unit.author || '')} | ` : '';
+        const editable = !(opts && opts.showAuthor); // public-library cards are read-only
+        const actions = editable
+            ? `<button class="btn btn-small btn-info" onclick="ImageOCR.editServerUnit(${unit.id})" title="修改编辑">✏️</button>
+               <button class="btn btn-small btn-danger" onclick="ImageOCR.deleteServerUnit(${unit.id})" title="删除">🗑️</button>`
+            : '';
+        return `<div class="saved-unit-card${opts && opts.showAuthor ? ' public-unit' : ''}">
+            <div class="saved-unit-info">
+                <h4>${escapeHtml(unit.name)} ${editable ? badge : ''}</h4>
+                <p>${author}📅 ${date} | 📝 ${(unit.words||[]).length}词 + ${(unit.phrases||[]).length}短语 + ${(unit.sentences||[]).length}句子 = ${total}项</p>
+            </div>
+            <div class="saved-unit-actions">
+                <button class="btn btn-small btn-primary" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'words')">单词</button>
+                <button class="btn btn-small btn-secondary" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'phrases')">词组</button>
+                <button class="btn btn-small btn-accent" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'sentences')">句子</button>
+                <button class="btn btn-small btn-warning" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'listening')">听力</button>
+                <button class="btn btn-small btn-outline" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'all')">全部</button>
+                ${actions}
+            </div>
+        </div>`;
+    }
+
+    // Group units by publisher → grade → book; render with sort mode
+    function renderUnitGroup(units, headerHtml, opts) {
+        if (!units || units.length === 0) return '';
+        let html = headerHtml;
+
+        if (sortMode === 'time') {
+            const sorted = [...units].sort((a, b) =>
+                new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at)
+            );
+            sorted.forEach(u => { html += buildUnitCardHtml(u, opts); });
+            return html;
+        }
+
+        // sortMode === 'unit' (default): group by publisher/grade/book, then sort by unit_no asc
+        const groups = new Map();
+        for (const u of units) {
+            const key = `${u.publisher || ''}|${u.grade || ''}|${u.book || ''}`;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(u);
+        }
+        // Sort group keys: non-empty first, alphabetical
+        const sortedKeys = [...groups.keys()].sort((a, b) => {
+            const aEmpty = a === '||', bEmpty = b === '||';
+            if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
+            return a.localeCompare(b, 'zh-Hans');
+        });
+        for (const key of sortedKeys) {
+            const [pub, grd, bk] = key.split('|');
+            const label = [pub, grd, bk].filter(Boolean).join(' · ') || '未分类 Uncategorized';
+            html += `<div class="unit-group-label">📂 ${escapeHtml(label)}</div>`;
+            const arr = groups.get(key).sort((a, b) => {
+                const an = a.unit_no || 0, bn = b.unit_no || 0;
+                if (an !== bn) return an - bn;
+                return (a.name || '').localeCompare(b.name || '', 'zh-Hans');
+            });
+            arr.forEach(u => { html += buildUnitCardHtml(u, opts); });
+        }
+        return html;
+    }
+
+    // Toolbar with sort toggle
+    function buildSortToolbar() {
+        return `<div class="saved-units-toolbar">
+            <span style="color:#666;font-size:0.9em;">排序 Sort:</span>
+            <button class="btn btn-small ${sortMode === 'unit' ? 'btn-primary' : 'btn-outline'}"
+                    onclick="ImageOCR.setSortMode('unit')">按 Unit 号 By Unit#</button>
+            <button class="btn btn-small ${sortMode === 'time' ? 'btn-primary' : 'btn-outline'}"
+                    onclick="ImageOCR.setSortMode('time')">按时间 By Time</button>
+        </div>`;
+    }
+
+    function setSortMode(mode) {
+        sortMode = mode === 'time' ? 'time' : 'unit';
+        try { localStorage.setItem(SORT_KEY, sortMode); } catch (e) {}
+        renderSavedUnits();
+    }
+
     // Render the list of saved custom units (from server + local)
     async function renderSavedUnits() {
         const container = document.getElementById('saved-units-list');
@@ -995,53 +1138,18 @@ const ImageOCR = (() => {
                 return;
             }
 
-            let html = '';
+            let html = buildSortToolbar();
 
-            // My units
-            if (myUnits.length > 0) {
-                html += '<h4 style="margin:8px 0;color:var(--primary);">📁 我的单元 My Units</h4>';
-                myUnits.forEach((unit) => {
-                    const date = new Date(unit.created_at).toLocaleDateString('zh-CN');
-                    const total = (unit.words || []).length + (unit.phrases || []).length + (unit.sentences || []).length;
-                    html += `<div class="saved-unit-card">
-                        <div class="saved-unit-info">
-                            <h4>${escapeHtml(unit.name)} ${unit.is_public ? '<span class="public-badge">公开</span>' : ''}</h4>
-                            <p>📅 ${date} | 📝 ${(unit.words||[]).length}词 + ${(unit.phrases||[]).length}短语 + ${(unit.sentences||[]).length}句子 = ${total}项</p>
-                        </div>
-                        <div class="saved-unit-actions">
-                            <button class="btn btn-small btn-primary" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'words')">单词</button>
-                            <button class="btn btn-small btn-secondary" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'phrases')">词组</button>
-                            <button class="btn btn-small btn-accent" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'sentences')">句子</button>
-                            <button class="btn btn-small btn-warning" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'listening')">听力</button>
-                            <button class="btn btn-small btn-outline" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'all')">全部</button>
-                            <button class="btn btn-small btn-info" onclick="ImageOCR.editServerUnit(${unit.id})" title="修改编辑">✏️</button>
-                            <button class="btn btn-small btn-danger" onclick="ImageOCR.deleteServerUnit(${unit.id})" title="删除">🗑️</button>
-                        </div>
-                    </div>`;
-                });
-            }
-
-            // Public units
-            if (publicUnits.length > 0) {
-                html += '<h4 style="margin:16px 0 8px;color:var(--success);">🌍 公共库 Public Library</h4>';
-                publicUnits.forEach((unit) => {
-                    const date = new Date(unit.created_at).toLocaleDateString('zh-CN');
-                    const total = (unit.words || []).length + (unit.phrases || []).length + (unit.sentences || []).length;
-                    html += `<div class="saved-unit-card public-unit">
-                        <div class="saved-unit-info">
-                            <h4>${escapeHtml(unit.name)}</h4>
-                            <p>👤 ${escapeHtml(unit.author)} | 📅 ${date} | 📝 ${total}项</p>
-                        </div>
-                        <div class="saved-unit-actions">
-                            <button class="btn btn-small btn-primary" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'words')">单词</button>
-                            <button class="btn btn-small btn-secondary" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'phrases')">词组</button>
-                            <button class="btn btn-small btn-accent" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'sentences')">句子</button>
-                            <button class="btn btn-small btn-warning" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'listening')">听力</button>
-                            <button class="btn btn-small btn-outline" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'all')">全部</button>
-                        </div>
-                    </div>`;
-                });
-            }
+            html += renderUnitGroup(
+                myUnits,
+                '<h4 style="margin:8px 0;color:var(--primary);">📁 我的单元 My Units</h4>',
+                { showAuthor: false }
+            );
+            html += renderUnitGroup(
+                publicUnits,
+                '<h4 style="margin:16px 0 8px;color:var(--success);">🌍 公共库 Public Library</h4>',
+                { showAuthor: true }
+            );
 
             container.innerHTML = html;
 
@@ -1125,6 +1233,10 @@ const ImageOCR = (() => {
         if (!unit) return;
 
         recognizedData.unitName = unit.name;
+        recognizedData.publisher = unit.publisher || '';
+        recognizedData.grade = unit.grade || '';
+        recognizedData.book = unit.book || '';
+        recognizedData.unitNo = unit.unit_no || 0;
         recognizedData.words = (unit.words || []).map(w => ({ en: w.en, cn: w.cn || '' }));
         recognizedData.phrases = (unit.phrases || []).map(p => ({ en: p.en, cn: p.cn || '' }));
         recognizedData.sentences = (unit.sentences || []).map(s => ({ en: s.en, cn: s.cn || '' }));
@@ -1265,7 +1377,7 @@ const ImageOCR = (() => {
         document.getElementById('upload-results').style.display = 'none';
         document.getElementById('upload-input').value = '';
         document.getElementById('preview-image').src = '';
-        recognizedData = { unitName: '', words: [], phrases: [], sentences: [], raw: '' };
+        recognizedData = { unitName: '', publisher: '', grade: '', book: '', unitNo: 0, words: [], phrases: [], sentences: [], raw: '' };
     }
 
     // Utility: escape HTML
@@ -1290,6 +1402,7 @@ const ImageOCR = (() => {
         renderSavedUnits,
         practiceServerUnit,
         editServerUnit,
-        deleteServerUnit
+        deleteServerUnit,
+        setSortMode
     };
 })();

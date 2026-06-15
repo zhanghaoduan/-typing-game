@@ -90,6 +90,30 @@ db.exec(`
     );
 `);
 
+// ---- Migrations: add metadata columns to units (idempotent) ----
+function ensureColumn(table, col, type) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+    if (!cols.some(c => c.name === col)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+    }
+}
+ensureColumn('units', 'publisher', "TEXT DEFAULT ''");
+ensureColumn('units', 'grade',     "TEXT DEFAULT ''");
+ensureColumn('units', 'book',      "TEXT DEFAULT ''");
+ensureColumn('units', 'unit_no',   "INTEGER DEFAULT 0");
+
+// Backfill unit_no by extracting "Unit N" from name, where empty/zero
+try {
+    const rows = db.prepare("SELECT id, name FROM units WHERE unit_no IS NULL OR unit_no = 0").all();
+    const upd = db.prepare("UPDATE units SET unit_no = ? WHERE id = ?");
+    for (const r of rows) {
+        const m = (r.name || '').match(/Unit\s*(\d+)/i);
+        if (m) upd.run(parseInt(m[1], 10), r.id);
+    }
+} catch (e) {
+    console.warn('[db] unit_no backfill failed:', e.message);
+}
+
 // Create default admin account if not exists
 const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
 if (!adminExists) {
