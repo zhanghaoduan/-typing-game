@@ -82,6 +82,12 @@ db.exec(`
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_practice_logs_user_id ON practice_logs(user_id);
+
+    CREATE TABLE IF NOT EXISTS translation_cache (
+        en_text TEXT PRIMARY KEY,
+        zh_text TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
 `);
 
 // Create default admin account if not exists

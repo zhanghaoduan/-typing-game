@@ -582,7 +582,7 @@ const ImageOCR = (() => {
         });
     }
 
-    // Auto-translate all items after parsing
+    // Auto-translate all items after parsing (sync — uses local dictionary)
     function autoTranslateAll() {
         ['words', 'phrases', 'sentences'].forEach(type => {
             recognizedData[type].forEach(item => {
@@ -591,6 +591,46 @@ const ImageOCR = (() => {
                 }
             });
         });
+    }
+
+    // Async: ask the backend to translate everything still missing, then update DOM in place
+    async function fetchRemoteTranslations() {
+        const missing = [];
+        ['words', 'phrases', 'sentences'].forEach(type => {
+            recognizedData[type].forEach(item => {
+                if (item.en && !item.cn) missing.push(item.en);
+            });
+        });
+        if (missing.length === 0) return;
+        try {
+            const res = await fetch('/api/translate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ texts: missing })
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            const map = (data && data.translations) || {};
+            ['words', 'phrases', 'sentences'].forEach(type => {
+                recognizedData[type].forEach((item, idx) => {
+                    if (item.en && !item.cn && map[item.en]) {
+                        item.cn = map[item.en];
+                        // Update the on-screen input/textarea if it exists
+                        const sel = `.proofread-section[data-type="${type}"] .proofread-cn[data-idx="${idx}"]`;
+                        const el = document.querySelector(sel);
+                        if (el) {
+                            el.value = item.cn;
+                            if (el.tagName === 'TEXTAREA') {
+                                el.style.height = 'auto';
+                                el.style.height = el.scrollHeight + 'px';
+                            }
+                        }
+                    }
+                });
+            });
+        } catch (err) {
+            console.warn('[OCR] remote translate failed:', err);
+        }
     }
 
     // ========== PROOFREADING UI ==========
@@ -626,6 +666,10 @@ const ImageOCR = (() => {
         </div>`;
 
         document.getElementById('recognized-items').innerHTML = html;
+
+        // Kick off remote translation for items the local dict couldn't cover.
+        // Runs asynchronously; updates DOM in-place when results arrive.
+        fetchRemoteTranslations();
     }
 
     // Build an editable section for proofreading
@@ -696,6 +740,24 @@ const ImageOCR = (() => {
             const translation = autoTranslate(newText);
             cnInput.value = translation; // Always update, even if empty
             recognizedData[type][idx].cn = translation;
+            // If local dictionary missed, ask the backend
+            if (!translation) {
+                fetch('/api/translate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ texts: [newText] })
+                }).then(r => r.ok ? r.json() : null).then(data => {
+                    const zh = data && data.translations && data.translations[newText];
+                    if (zh && recognizedData[type][idx] && recognizedData[type][idx].en === newText && !recognizedData[type][idx].cn) {
+                        recognizedData[type][idx].cn = zh;
+                        cnInput.value = zh;
+                        if (cnInput.tagName === 'TEXTAREA') {
+                            cnInput.style.height = 'auto';
+                            cnInput.style.height = cnInput.scrollHeight + 'px';
+                        }
+                    }
+                }).catch(() => {});
+            }
         }
     }
 
