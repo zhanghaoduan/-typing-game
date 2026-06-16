@@ -1346,6 +1346,11 @@ body {
     flex-wrap: wrap;
 }
 
+.saved-unit-card.flash-highlight {
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.28), var(--shadow);
+    transition: box-shadow 0.25s ease;
+}
+
 .saved-unit-info h4 {
     font-size: 16px;
     margin: 0 0 4px 0;

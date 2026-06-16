@@ -350,28 +350,60 @@ const ImageOCR = (() => {
         return matches.reduce((max, match) => Math.max(max, Number(match[1]) || 0), 0);
     }
 
+    function shouldUseAiForImage(parseHint, rawText, fileName = '') {
+        const text = String(rawText || '').trim();
+        const expectedCount = detectExpectedNumberedItemCount(text);
+        if (parseHint && parseHint.forceSection === 'sentences') return true;
+        if (expectedCount > 0) return true;
+        if (!text || countEnglishWords(text) < 3) return true;
+        if (parseHint && (parseHint.forceSection === 'words' || parseHint.forceSection === 'phrases')) return false;
+        if (/句子|sentence/i.test(fileName) || countEnglishWords(text) >= 12) return true;
+        return false;
+    }
+
+    function needsSentenceAiRetry(aiResult, expectedCount = 0, expectedSection = '') {
+        if (!aiResult || expectedSection !== 'sentences') return false;
+        const sentences = Array.isArray(aiResult.sentences) ? aiResult.sentences : [];
+        if (expectedCount > 0 && sentences.length < expectedCount) return true;
+        return sentences.some(item => {
+            const text = String(item && item.en || '').trim();
+            const words = countEnglishWords(text);
+            return words <= 4 || /\b(?:made\/makes me|can give|is like)\b\s*$/i.test(text);
+        });
+    }
+
     async function fetchAiStructureFromImage(imageData, fileName, hintText = '', expectedSection = '') {
+        const expectedCount = detectExpectedNumberedItemCount(hintText);
         try {
-            const res = await fetch('/api/ocr/ai-sentences', {
+            const requestAi = async (extraHint = '') => fetch('/api/ocr/ai-sentences', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     imageData,
                     fileName,
-                    hintText,
+                    hintText: `${hintText}${extraHint}`,
                     expectedSection,
-                    expectedCount: detectExpectedNumberedItemCount(hintText)
+                    expectedCount
                 })
             });
-            if (!res.ok) return null;
-            const data = await res.json();
-            if (!data) return null;
-            return {
-                section: data.section || 'mixed',
-                words: Array.isArray(data.words) ? data.words : [],
-                phrases: Array.isArray(data.phrases) ? data.phrases : [],
-                sentences: Array.isArray(data.sentences) ? data.sentences : []
+
+            const parseAi = async (response) => {
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (!data) return null;
+                return {
+                    section: data.section || 'mixed',
+                    words: Array.isArray(data.words) ? data.words : [],
+                    phrases: Array.isArray(data.phrases) ? data.phrases : [],
+                    sentences: Array.isArray(data.sentences) ? data.sentences : []
+                };
             };
+
+            let aiResult = await parseAi(await requestAi(''));
+            if (needsSentenceAiRetry(aiResult, expectedCount, expectedSection)) {
+                aiResult = await parseAi(await requestAi(`\nRe-read the image. Output exactly ${expectedCount || 'all visible'} numbered sentence items and make every sentence complete.`)) || aiResult;
+            }
+            return aiResult;
         } catch (err) {
             console.warn('[OCR] AI structure extraction failed:', err);
             return null;
@@ -610,6 +642,38 @@ const ImageOCR = (() => {
             reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
             reader.readAsText(file, 'utf-8');
         });
+    }
+
+    function loadImageElement(src) {
+        return new Promise((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => reject(new Error('Failed to load image'));
+            image.src = src;
+        });
+    }
+
+    async function optimizeImageDataForOcr(imageDataUrl) {
+        const image = await loadImageElement(imageDataUrl);
+        const maxDimension = 1600;
+        const longestSide = Math.max(image.naturalWidth || image.width || 0, image.naturalHeight || image.height || 0);
+        if (!longestSide || longestSide <= maxDimension) {
+            return imageDataUrl;
+        }
+
+        const scale = maxDimension / longestSide;
+        const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+        const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d', { alpha: false });
+        if (!ctx) return imageDataUrl;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(image, 0, 0, width, height);
+        return canvas.toDataURL('image/jpeg', 0.9);
     }
 
     function buildSourceProgressLabel(kind, current, total, name) {
@@ -928,6 +992,7 @@ const ImageOCR = (() => {
             for (let i = 0; i < imageFiles.length; i++) {
                 const file = imageFiles[i];
                 const imageData = await readFileAsDataUrl(file);
+                const optimizedImageData = await optimizeImageDataForOcr(imageData);
                 updateOverallProgress(
                     progressFill,
                     statusEl,
@@ -937,7 +1002,7 @@ const ImageOCR = (() => {
                     `正在识别图片 ${i + 1}/${imageFiles.length}... Recognizing image ${i + 1}/${imageFiles.length}...`
                 );
 
-                const result = await Tesseract.recognize(imageData, 'eng', {
+                const result = await Tesseract.recognize(optimizedImageData, 'eng', {
                     logger: (m) => {
                         if (m.status === 'recognizing text') {
                             updateOverallProgress(
@@ -968,14 +1033,24 @@ const ImageOCR = (() => {
                     : baseRawText;
                 let parsedData = null;
 
-                const aiResult = await fetchAiStructureFromImage(
-                    imageData,
-                    file.name,
-                    parseHint.fullOcrText,
-                    parseHint.forceSection || ''
-                );
-                if (hasAiItems(aiResult)) {
-                    parsedData = buildRecognizedDataFromAiStructure(aiResult, aggregateData, rawText);
+                if (shouldUseAiForImage(parseHint, rawText, file.name)) {
+                    updateOverallProgress(
+                        progressFill,
+                        statusEl,
+                        sourceIndex,
+                        totalSources,
+                        0.96,
+                        `正在智能分析 ${i + 1}/${imageFiles.length}... AI analyzing ${i + 1}/${imageFiles.length}...`
+                    );
+                    const aiResult = await fetchAiStructureFromImage(
+                        optimizedImageData,
+                        file.name,
+                        parseHint.fullOcrText,
+                        parseHint.forceSection || ''
+                    );
+                    if (hasAiItems(aiResult)) {
+                        parsedData = buildRecognizedDataFromAiStructure(aiResult, aggregateData, rawText);
+                    }
                 }
 
                 if (!parsedData) {
@@ -1231,10 +1306,28 @@ const ImageOCR = (() => {
     }
 
     function deriveUnitNameFromFiles(files) {
-        const firstImage = files.find(file => file.type.startsWith('image/'));
-        const firstCsv = files.find(file => file.type === 'text/csv' || /\.csv$/i.test(file.name));
-        const picked = firstImage || firstCsv || files[0];
-        return picked ? stripFileExtension(picked.name) : '';
+        const names = (files || []).map(file => String(file && file.name || '')).filter(Boolean);
+        if (names.length === 0) return '';
+
+        const dateMatches = names
+            .flatMap(name => [...name.matchAll(/(20\d{6})/g)].map(match => match[1]))
+            .sort();
+
+        let dateLabel = '';
+        if (dateMatches.length > 0) {
+            const first = dateMatches[0];
+            const last = dateMatches[dateMatches.length - 1];
+            dateLabel = first === last ? first : `${first}-${last.slice(-2)}`;
+        }
+
+        const hasLesson = names.some(name => /课文/.test(name));
+        const parts = [];
+        if (recognizedData.words.length > 0) parts.push('单词');
+        if (recognizedData.phrases.length > 0) parts.push('短语');
+        if (recognizedData.sentences.length > 0) parts.push('句子');
+
+        const body = `${hasLesson ? '课文' : ''}${parts.join('')}` || stripFileExtension(names[0]);
+        return [dateLabel, body].filter(Boolean).join(' ');
     }
 
     function parseCsvRows(text) {
@@ -1958,9 +2051,6 @@ const ImageOCR = (() => {
 
         if (!recognizedData[type] || !recognizedData[type][idx]) return;
 
-        // Check if text actually changed
-        if (recognizedData[type][idx].en === newText) return;
-
         // Update recognizedData
         recognizedData[type][idx].en = newText;
 
@@ -1970,24 +2060,21 @@ const ImageOCR = (() => {
             const translation = autoTranslate(newText);
             cnInput.value = translation; // Always update, even if empty
             recognizedData[type][idx].cn = translation;
-            // If local dictionary missed, ask the backend
-            if (!translation) {
-                fetch('/api/translate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ texts: [newText] })
-                }).then(r => r.ok ? r.json() : null).then(data => {
-                    const zh = data && data.translations && data.translations[newText];
-                    if (zh && recognizedData[type][idx] && recognizedData[type][idx].en === newText && !recognizedData[type][idx].cn) {
-                        recognizedData[type][idx].cn = zh;
-                        cnInput.value = zh;
-                        if (cnInput.tagName === 'TEXTAREA') {
-                            cnInput.style.height = 'auto';
-                            cnInput.style.height = cnInput.scrollHeight + 'px';
-                        }
+            fetch('/api/translate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ texts: [newText] })
+            }).then(r => r.ok ? r.json() : null).then(data => {
+                const zh = data && data.translations && data.translations[newText];
+                if (zh && recognizedData[type][idx] && recognizedData[type][idx].en === newText && recognizedData[type][idx].cn !== zh) {
+                    recognizedData[type][idx].cn = zh;
+                    cnInput.value = zh;
+                    if (cnInput.tagName === 'TEXTAREA') {
+                        cnInput.style.height = 'auto';
+                        cnInput.style.height = cnInput.scrollHeight + 'px';
                     }
-                }).catch(() => {});
-            }
+                }
+            }).catch(() => {});
         }
     }
 
@@ -2228,7 +2315,7 @@ const ImageOCR = (() => {
             name: unitName,
             createdAt: new Date().toISOString(),
             publisher: recognizedData.publisher || '',
-            grade: recognizedData.grade || '',
+            grade: recognizedData.grade || getEffectiveGradeFilter() || getUserGrade() || '',
             book: recognizedData.book || '',
             unitNo: recognizedData.unitNo || 0,
             words: [...recognizedData.words],
@@ -2241,11 +2328,12 @@ const ImageOCR = (() => {
         if (AuthUI.isLoggedIn()) {
             if (recognizedData._editingServerId) {
                 // Update existing unit on server
-                const result = await updateUnitOnServer(recognizedData._editingServerId, persistableUnit);
+                const editingServerId = recognizedData._editingServerId;
+                const result = await updateUnitOnServer(editingServerId, persistableUnit);
                 if (result) {
                     recognizedData._editingServerId = null;
                     recognizedData._editingIdx = null;
-                    await renderSavedUnits();
+                    await renderSavedUnits({ focusUnitId: editingServerId });
                     alert(`✅ 已更新 "${unitName}"\n单词: ${unit.words.length} | 词组: ${unit.phrases.length} | 句子: ${unit.sentences.length}`);
                     return;
                 }
@@ -2253,7 +2341,7 @@ const ImageOCR = (() => {
                 // Save new unit to server
                 const result = await saveUnitToServer(persistableUnit);
                 if (result) {
-                    await renderSavedUnits();
+                    await renderSavedUnits({ focusUnitId: result.id });
                     alert(`✅ 已保存 "${unitName}"\n单词: ${unit.words.length} | 词组: ${unit.phrases.length} | 句子: ${unit.sentences.length}`);
                     return;
                 }
@@ -2289,7 +2377,7 @@ const ImageOCR = (() => {
         }
 
         saveSavedUnits(units);
-        renderSavedUnits();
+        renderSavedUnits({ focusUnitId: persistableUnit.id });
         alert(`✅ 已保存 "${unitName}"\n单词: ${unit.words.length} | 词组: ${unit.phrases.length} | 句子: ${unit.sentences.length}\n\nSaved! Words: ${unit.words.length} | Phrases: ${unit.phrases.length} | Sentences: ${unit.sentences.length}`);
     }
 
@@ -2304,7 +2392,7 @@ const ImageOCR = (() => {
             ? `<button class="btn btn-small btn-info" onclick="ImageOCR.editServerUnit(${unit.id})" title="修改编辑">✏️</button>
                <button class="btn btn-small btn-danger" onclick="ImageOCR.deleteServerUnit(${unit.id})" title="删除">🗑️</button>`
             : '';
-        return `<div class="saved-unit-card${opts && opts.showAuthor ? ' public-unit' : ''}">
+        return `<div class="saved-unit-card${opts && opts.showAuthor ? ' public-unit' : ''}" data-unit-id="${escapeHtml(String(unit.id || ''))}">
             <div class="saved-unit-info">
                 <h4>${escapeHtml(unit.name)} ${editable ? badge : ''}</h4>
                 <p>${author}📅 ${date} | 📝 ${(unit.words||[]).length}词 + ${(unit.phrases||[]).length}短语 + ${(unit.sentences||[]).length}句子 = ${total}项</p>
@@ -2409,8 +2497,17 @@ const ImageOCR = (() => {
         renderSavedUnits();
     }
 
+    function focusRenderedUnit(container, unitId) {
+        if (!container || unitId === undefined || unitId === null) return;
+        const card = container.querySelector(`[data-unit-id="${String(unitId).replace(/"/g, '\\"')}"]`);
+        if (!card) return;
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.classList.add('flash-highlight');
+        setTimeout(() => card.classList.remove('flash-highlight'), 2200);
+    }
+
     // Render the list of saved custom units (from server + local)
-    async function renderSavedUnits() {
+    async function renderSavedUnits(options = {}) {
         const container = document.getElementById('saved-units-list');
         if (!container) return;
 
@@ -2456,6 +2553,7 @@ const ImageOCR = (() => {
             );
 
             container.innerHTML = html;
+            focusRenderedUnit(container, options.focusUnitId);
 
             // Cache server units locally for practice (unfiltered, so "play" still works)
             _cachedServerUnits = [...myUnits, ...publicUnits];
@@ -2491,6 +2589,7 @@ const ImageOCR = (() => {
         });
 
         container.innerHTML = html;
+        focusRenderedUnit(container, options.focusUnitId);
     }
 
     // Cache for server units (to avoid re-fetching for practice)
