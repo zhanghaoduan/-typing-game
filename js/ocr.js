@@ -186,7 +186,11 @@ const ImageOCR = (() => {
     function parseOcrTextToRecognizedData(rawText, baseData, parseHint = {}) {
         const snapshot = recognizedData;
         recognizedData = cloneRecognizedData(baseData || createEmptyRecognizedData());
-        smartParse(rawText, parseHint);
+        if (parseHint.forceSection === 'sentences') {
+            parseForcedSentenceSection(rawText, parseHint);
+        } else {
+            smartParse(rawText, parseHint);
+        }
         const parsed = cloneRecognizedData(recognizedData);
         recognizedData = snapshot;
         return reclassifyForcedSectionItems(parsed, parseHint.forceSection);
@@ -512,7 +516,9 @@ const ImageOCR = (() => {
             .replace(/^Alife\b/i, 'A life')
             .replace(/^Ayear\b/i, 'A year')
             .replace(/\b([A-Za-z]+)\.\s+([A-Za-z]+)\.\.\./g, '$1...$2...')
-            .replace(/\bkeepkept\b/ig, 'keep/kept');
+            .replace(/\bkeepkept\b/ig, 'keep/kept')
+            .replace(/\bmademakes\b/ig, 'made/makes')
+            .replace(/\bworkWorking\b/g, 'work/Working');
 
         if (preferSentence) {
             fixed = fixed
@@ -521,6 +527,58 @@ const ImageOCR = (() => {
         }
 
         return fixed;
+    }
+
+    function parseForcedSentenceSection(rawText, parseHint = {}) {
+        const prevMeta = {
+            publisher: recognizedData.publisher || '',
+            grade: recognizedData.grade || '',
+            book: recognizedData.book || ''
+        };
+        recognizedData = createEmptyRecognizedData(rawText);
+        recognizedData.publisher = prevMeta.publisher;
+        recognizedData.grade = prevMeta.grade;
+        recognizedData.book = prevMeta.book;
+
+        const lines = String(rawText || '').split('\n').map(line => line.trim()).filter(Boolean);
+        let currentSentence = '';
+
+        for (const rawLine of lines) {
+            const line = fixCommonOcrTextIssues(trimTrailingOcrNoise(rawLine), true);
+
+            const unitMatch = line.match(/Unit\s*\d+[\s:.\-]*[A-Za-z\s]+/i);
+            if (unitMatch && !recognizedData.unitName) {
+                recognizedData.unitName = unitMatch[0].trim();
+                continue;
+            }
+
+            if (isHeaderOrGarbage(line)) continue;
+
+            const numberedMatch = line.match(/^\s*(\d{1,2})[.\s、:]+(.*)$/);
+            if (numberedMatch) {
+                if (currentSentence) {
+                    addToSection(currentSentence, 'sentences', { forceSection: true });
+                }
+                currentSentence = fixCommonOcrTextIssues(
+                    trimTrailingOcrNoise(numberedMatch[2] || ''),
+                    true
+                );
+                continue;
+            }
+
+            const english = extractEnglish(line);
+            if (english) {
+                currentSentence = currentSentence
+                    ? joinSentenceParts(currentSentence, english)
+                    : fixCommonOcrTextIssues(english, true);
+            }
+        }
+
+        if (currentSentence) {
+            addToSection(currentSentence, 'sentences', { forceSection: true });
+        }
+
+        autoTranslateAll();
     }
 
     function buildUsableRawTextFromOcr(ocrData) {
