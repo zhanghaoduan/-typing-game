@@ -3,6 +3,23 @@ const express = require('express');
 const router = express.Router();
 
 function getVisionConfig() {
+    if (
+        process.env.AZURE_OPENAI_ENDPOINT &&
+        process.env.AZURE_OPENAI_API_KEY &&
+        process.env.AZURE_OPENAI_DEPLOYMENT
+    ) {
+        const endpoint = String(process.env.AZURE_OPENAI_ENDPOINT || '').replace(/\/+$/, '');
+        const deployment = String(process.env.AZURE_OPENAI_DEPLOYMENT || '').trim();
+        const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2024-10-21';
+        return {
+            provider: 'azure-openai',
+            apiKey: process.env.AZURE_OPENAI_API_KEY,
+            deployment,
+            apiVersion,
+            url: `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`
+        };
+    }
+
     if (process.env.OCR_VISION_API_KEY && process.env.OCR_VISION_MODEL) {
         return {
             provider: 'custom',
@@ -108,30 +125,40 @@ async function callVisionModel(imageData, fileName, hintText) {
         hintText ? `OCR hint text: ${String(hintText).slice(0, 4000)}` : ''
     ].filter(Boolean).join('\n');
 
+    const headers = {
+        'Content-Type': 'application/json'
+    };
+    if (config.provider === 'azure-openai') {
+        headers['api-key'] = config.apiKey;
+    } else {
+        headers['Authorization'] = `Bearer ${config.apiKey}`;
+    }
+
+    const body = {
+        temperature: 0.1,
+        max_tokens: 900,
+        messages: [
+            {
+                role: 'system',
+                content: 'You extract complete English exercise sentences from images and respond with JSON only.'
+            },
+            {
+                role: 'user',
+                content: [
+                    { type: 'text', text: prompt },
+                    { type: 'image_url', image_url: { url: imageData } }
+                ]
+            }
+        ]
+    };
+    if (config.provider !== 'azure-openai') {
+        body.model = config.model;
+    }
+
     const response = await fetch(config.url, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${config.apiKey}`
-        },
-        body: JSON.stringify({
-            model: config.model,
-            temperature: 0.1,
-            max_tokens: 900,
-            messages: [
-                {
-                    role: 'system',
-                    content: 'You extract complete English exercise sentences from images and respond with JSON only.'
-                },
-                {
-                    role: 'user',
-                    content: [
-                        { type: 'text', text: prompt },
-                        { type: 'image_url', image_url: { url: imageData } }
-                    ]
-                }
-            ]
-        })
+        headers,
+        body: JSON.stringify(body)
     });
 
     if (!response.ok) {
