@@ -481,7 +481,8 @@ const ImageOCR = (() => {
         const tokens = normalized.split(/\s+/).filter(Boolean);
         if (tokens.length < 2) return normalized;
 
-        const minKeep = countEnglishWords(normalized) >= 5 ? 3 : 2;
+        const englishWordCount = countEnglishWords(normalized);
+        const minKeep = englishWordCount >= 5 ? 3 : 1;
         let cutIndex = tokens.length;
         let suspiciousSuffix = false;
 
@@ -510,7 +511,8 @@ const ImageOCR = (() => {
             .replace(/^T(?=\s+(?:am|was|have|had|can|could|will|would|should|may|might|must|love|loved|like|liked|keep|kept|play|played|want|wanted|decide|decided|make|made|go|went|feel|felt)\b)/, 'I')
             .replace(/^Alife\b/i, 'A life')
             .replace(/^Ayear\b/i, 'A year')
-            .replace(/\b([A-Za-z]+)\.\s+([A-Za-z]+)\.\.\./g, '$1...$2...');
+            .replace(/\b([A-Za-z]+)\.\s+([A-Za-z]+)\.\.\./g, '$1...$2...')
+            .replace(/\bkeepkept\b/ig, 'keep/kept');
 
         if (preferSentence) {
             fixed = fixed
