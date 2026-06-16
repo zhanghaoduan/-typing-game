@@ -3,6 +3,16 @@ const express = require('express');
 const router = express.Router();
 
 function getVisionConfig() {
+    if (process.env.GEMINI_API_KEY) {
+        const model = process.env.GEMINI_VISION_MODEL || 'gemini-2.5-flash';
+        return {
+            provider: 'gemini',
+            apiKey: process.env.GEMINI_API_KEY,
+            model,
+            url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`
+        };
+    }
+
     if (
         process.env.AZURE_OPENAI_ENDPOINT &&
         process.env.AZURE_OPENAI_API_KEY &&
@@ -68,6 +78,17 @@ function extractMessageText(payload) {
     return '';
 }
 
+function extractGeminiText(payload) {
+    const candidates = Array.isArray(payload && payload.candidates) ? payload.candidates : [];
+    const parts = candidates[0] && candidates[0].content && Array.isArray(candidates[0].content.parts)
+        ? candidates[0].content.parts
+        : [];
+    return parts
+        .map(part => String(part && part.text || ''))
+        .join('\n')
+        .trim();
+}
+
 function parseJsonObject(text) {
     const raw = String(text || '').trim();
     if (!raw) return null;
@@ -124,6 +145,54 @@ async function callVisionModel(imageData, fileName, hintText) {
         fileName ? `File name hint: ${fileName}` : '',
         hintText ? `OCR hint text: ${String(hintText).slice(0, 4000)}` : ''
     ].filter(Boolean).join('\n');
+
+    if (config.provider === 'gemini') {
+        const dataUrlMatch = imageData.match(/^data:(image\/[A-Za-z0-9.+-]+);base64,(.+)$/);
+        if (!dataUrlMatch) {
+            throw new Error('Invalid image data URL');
+        }
+
+        const response = await fetch(config.url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                generationConfig: {
+                    temperature: 0.1,
+                    maxOutputTokens: 900,
+                    responseMimeType: 'application/json'
+                },
+                contents: [
+                    {
+                        role: 'user',
+                        parts: [
+                            { text: prompt },
+                            {
+                                inlineData: {
+                                    mimeType: dataUrlMatch[1],
+                                    data: dataUrlMatch[2]
+                                }
+                            }
+                        ]
+                    }
+                ]
+            })
+        });
+
+        if (!response.ok) {
+            const message = await response.text().catch(() => '');
+            throw new Error(`Vision API failed: ${response.status} ${message}`.trim());
+        }
+
+        const payload = await response.json();
+        const parsed = parseJsonObject(extractGeminiText(payload));
+        return {
+            available: true,
+            provider: config.provider,
+            sentences: sanitizeSentences(parsed && parsed.sentences)
+        };
+    }
 
     const headers = {
         'Content-Type': 'application/json'

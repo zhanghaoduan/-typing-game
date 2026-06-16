@@ -177,6 +177,7 @@ Web Speech API 语音合成兼容性：
 
 - 句子题图片现在支持可选的 AI 识图补全通道。
 - 如果服务端配置了以下任一组环境变量，前端在识别“句子”类图片时会优先调用 AI 提取完整句子：
+  - `GEMINI_API_KEY`，可选 `GEMINI_VISION_MODEL`
   - `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_DEPLOYMENT`，可选 `AZURE_OPENAI_API_VERSION`
   - `OPENAI_API_KEY`，可选 `OPENAI_VISION_MODEL`
   - `GITHUB_TOKEN` + `GITHUB_MODELS_MODEL`
