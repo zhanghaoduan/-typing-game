@@ -310,6 +310,115 @@ const ImageOCR = (() => {
         });
     }
 
+    function extractOrderedNumberBlocks(fullText) {
+        const text = String(fullText || '').replace(/\r/g, ' ').replace(/\n+/g, ' ');
+        const starts = [];
+        const startRegex = /(?:^|\s)(\d{1,2})[.\s、:]+/g;
+        let match;
+        while ((match = startRegex.exec(text)) !== null) {
+            const offset = /^\s/.test(match[0]) ? 1 : 0;
+            starts.push({
+                number: Number(match[1]),
+                pos: match.index + offset,
+                length: match[0].trimStart().length
+            });
+        }
+
+        return starts.map((start, index) => {
+            const startPos = start.pos + start.length;
+            const endPos = index + 1 < starts.length ? starts[index + 1].pos : text.length;
+            return {
+                number: start.number,
+                text: text.slice(startPos, endPos).replace(/\s+/g, ' ').trim()
+            };
+        }).filter(block => block.text);
+    }
+
+    function partitionNumberBlocks(blocks) {
+        const groups = [];
+        let current = [];
+        let lastNumber = 0;
+
+        blocks.forEach((block) => {
+            const num = Number(block.number) || 0;
+            const shouldRestart = current.length > 0 && (
+                (num === 1 && lastNumber >= 4) ||
+                (num > 0 && lastNumber > 0 && num + 2 < lastNumber)
+            );
+
+            if (shouldRestart) {
+                groups.push(current);
+                current = [];
+            }
+            current.push(block);
+            lastNumber = num;
+        });
+
+        if (current.length > 0) groups.push(current);
+        return groups;
+    }
+
+    function normalizeBlockTextBySection(text, section) {
+        const raw = String(text || '').trim();
+        if (!raw) return '';
+        if (section === 'words') {
+            const word = normalizeWordCandidate(raw);
+            return isLikelyWordEntry(word) ? word : '';
+        }
+        if (section === 'phrases') {
+            const phrase = trimTrailingCarryover(
+                trimTrailingOcrNoise(raw.replace(/[^a-zA-Z0-9\s.,!?'"\-\/…]/g, ' ').trim())
+            );
+            return countEnglishWords(phrase) >= 2 && countEnglishWords(phrase) <= 8 ? phrase : '';
+        }
+        const sentence = fixCommonOcrTextIssues(
+            trimTrailingCarryover(trimTrailingOcrNoise(raw)),
+            true
+        ).trim();
+        return countEnglishWords(sentence) >= 4 ? sentence : '';
+    }
+
+    function buildOrderedItemsFromBlocks(blocks, section) {
+        const ordered = new Map();
+        (blocks || []).forEach((block) => {
+            const text = normalizeBlockTextBySection(block.text, section);
+            if (!text) return;
+            const existing = ordered.get(block.number);
+            if (!existing || countEnglishWords(text) > countEnglishWords(existing)) {
+                ordered.set(block.number, text);
+            }
+        });
+        return [...ordered.entries()]
+            .sort((a, b) => a[0] - b[0])
+            .map(([, text]) => buildRuntimeItem(text))
+            .filter(Boolean);
+    }
+
+    function completeMixedSectionsFromNumberGroups(data, parseHint = {}) {
+        const blocks = extractOrderedNumberBlocks(parseHint.fullOcrText || '');
+        if (blocks.length < 8) return data;
+
+        const groups = partitionNumberBlocks(blocks).filter(group => group.length > 0);
+        if (groups.length < 3) return data;
+
+        const completed = cloneRecognizedData(data);
+        const sections = ['words', 'phrases', 'sentences'];
+
+        for (let i = 0; i < Math.min(3, groups.length); i++) {
+            const section = sections[i];
+            const items = buildOrderedItemsFromBlocks(groups[i], section);
+            if (items.length === 0) continue;
+
+            if (section === 'sentences') {
+                completed.sentences = mergeSentenceItemsByOrder(completed.sentences || [], items);
+            } else if (items.length >= (completed[section] || []).length) {
+                completed[section] = items;
+            }
+        }
+
+        return completed;
+    }
+
     function completeMixedSectionsFromFullOcr(data, parseHint = {}) {
         const fullText = String(parseHint.fullOcrText || '');
         if (!fullText) return data;
@@ -331,7 +440,7 @@ const ImageOCR = (() => {
                 completed[section] = extractedItems;
             }
         });
-        return completed;
+        return completeMixedSectionsFromNumberGroups(completed, parseHint);
     }
 
     function detectSourceParseHint(fileName, rawOcrText) {
