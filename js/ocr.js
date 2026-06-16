@@ -607,6 +607,47 @@ const ImageOCR = (() => {
         return fixed;
     }
 
+    function extractNumberedSentenceFallbacks(rawText) {
+        const text = String(rawText || '').replace(/\r/g, '');
+        const matches = [...text.matchAll(/(?:^|\n)\s*(\d{1,2})[.\s、:]+([\s\S]*?)(?=(?:\n\s*\d{1,2}[.\s、:]+)|$)/g)];
+        const fallbacks = new Map();
+
+        matches.forEach((match) => {
+            const number = Number(match[1]);
+            const block = String(match[2] || '').replace(/\n+/g, ' ');
+            const english = extractEnglish(block);
+            if (!english) return;
+            const normalized = fixCommonOcrTextIssues(trimTrailingCarryover(trimTrailingOcrNoise(english)), true);
+            if (!normalized) return;
+            const existing = fallbacks.get(number);
+            if (!existing || countEnglishWords(normalized) > countEnglishWords(existing)) {
+                fallbacks.set(number, normalized);
+            }
+        });
+
+        return fallbacks;
+    }
+
+    function completeForcedSentence(text, number, fallbackMap) {
+        const current = fixCommonOcrTextIssues(trimTrailingCarryover(trimTrailingOcrNoise(text)), true).trim();
+        if (!current) return current;
+        if (!fallbackMap || !number) return current;
+
+        const fallback = String(fallbackMap.get(Number(number)) || '').trim();
+        if (!fallback) return current;
+
+        const currentWords = countEnglishWords(current);
+        const fallbackWords = countEnglishWords(fallback);
+        const currentNormalized = current.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        const fallbackNormalized = fallback.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+        if (fallbackNormalized === currentNormalized) return current;
+        if (fallbackNormalized.startsWith(currentNormalized) && fallbackWords >= currentWords + 2) return fallback;
+        if (currentWords <= 4 && fallbackWords > currentWords) return fallback;
+        if (!/[.!?]$/.test(current) && fallbackWords >= Math.max(6, currentWords + 2)) return fallback;
+        return current;
+    }
+
     function parseForcedSentenceSection(rawText, parseHint = {}) {
         const prevMeta = {
             publisher: recognizedData.publisher || '',
@@ -619,7 +660,9 @@ const ImageOCR = (() => {
         recognizedData.book = prevMeta.book;
 
         const lines = String(rawText || '').split('\n').map(line => line.trim()).filter(Boolean);
+        const fallbackSentences = extractNumberedSentenceFallbacks(parseHint.fullOcrText || rawText);
         let currentSentence = '';
+        let currentNumber = null;
 
         for (const rawLine of lines) {
             const line = fixCommonOcrTextIssues(trimTrailingOcrNoise(rawLine), true);
@@ -635,8 +678,9 @@ const ImageOCR = (() => {
             const numberedMatch = line.match(/^\s*(\d{1,2})[.\s、:]+(.*)$/);
             if (numberedMatch) {
                 if (currentSentence) {
-                    addToSection(currentSentence, 'sentences', { forceSection: true });
+                    addToSection(completeForcedSentence(currentSentence, currentNumber, fallbackSentences), 'sentences', { forceSection: true });
                 }
+                currentNumber = Number(numberedMatch[1]);
                 currentSentence = fixCommonOcrTextIssues(
                     trimTrailingOcrNoise(numberedMatch[2] || ''),
                     true
@@ -653,7 +697,7 @@ const ImageOCR = (() => {
         }
 
         if (currentSentence) {
-            addToSection(currentSentence, 'sentences', { forceSection: true });
+            addToSection(completeForcedSentence(currentSentence, currentNumber, fallbackSentences), 'sentences', { forceSection: true });
         }
 
         autoTranslateAll();
@@ -783,6 +827,7 @@ const ImageOCR = (() => {
                 uploadedImageReferences.push(sourceRef);
                 const baseRawText = buildUsableRawTextFromOcr(result.data);
                 const parseHint = detectSourceParseHint(file.name, result.data.text || baseRawText);
+                parseHint.fullOcrText = String((result.data && result.data.text) || baseRawText || '');
                 const rawText = parseHint.forceSection === 'sentences'
                     ? buildSentenceExerciseRawTextFromOcr(result.data)
                     : baseRawText;
