@@ -12,6 +12,7 @@ const ImageOCR = (() => {
     let recognizedData = createEmptyRecognizedData();
     let previewObjectUrl = null;
     let translationRequestSeq = 0;
+    let uploadedImageReferences = [];
 
     function createEmptyRecognizedData(raw = '') {
         return {
@@ -27,6 +28,63 @@ const ImageOCR = (() => {
             _editingIdx: null,
             _editingServerId: null
         };
+    }
+
+    function cloneRecognizedData(data) {
+        return {
+            unitName: data.unitName || '',
+            publisher: data.publisher || '',
+            grade: data.grade || '',
+            book: data.book || '',
+            unitNo: data.unitNo || 0,
+            words: (data.words || []).map(item => ({ ...item })),
+            phrases: (data.phrases || []).map(item => ({ ...item })),
+            sentences: (data.sentences || []).map(item => ({ ...item })),
+            raw: data.raw || '',
+            _editingIdx: data._editingIdx ?? null,
+            _editingServerId: data._editingServerId ?? null
+        };
+    }
+
+    function attachSourceReference(data, sourceRef) {
+        ['words', 'phrases', 'sentences'].forEach(type => {
+            data[type].forEach(item => {
+                item._sourceRef = sourceRef ? { ...sourceRef } : null;
+            });
+        });
+        return data;
+    }
+
+    function mergeRecognizedData(target, incoming) {
+        if (!target.unitName && incoming.unitName) target.unitName = incoming.unitName;
+        if (!target.publisher && incoming.publisher) target.publisher = incoming.publisher;
+        if (!target.grade && incoming.grade) target.grade = incoming.grade;
+        if (!target.book && incoming.book) target.book = incoming.book;
+        if (!target.unitNo && incoming.unitNo) target.unitNo = incoming.unitNo;
+        if (incoming.raw) {
+            target.raw = target.raw ? `${target.raw}\n${incoming.raw}` : incoming.raw;
+        }
+
+        ['words', 'phrases', 'sentences'].forEach(type => {
+            incoming[type].forEach(item => {
+                const existing = target[type].find(entry => entry.en.toLowerCase() === item.en.toLowerCase());
+                if (!existing) {
+                    target[type].push({ ...item });
+                    return;
+                }
+                if (!existing.cn && item.cn) existing.cn = item.cn;
+                if (!existing._sourceRef && item._sourceRef) existing._sourceRef = { ...item._sourceRef };
+            });
+        });
+    }
+
+    function parseOcrTextToRecognizedData(rawText, baseData) {
+        const snapshot = recognizedData;
+        recognizedData = cloneRecognizedData(baseData || createEmptyRecognizedData());
+        smartParse(rawText);
+        const parsed = cloneRecognizedData(recognizedData);
+        recognizedData = snapshot;
+        return parsed;
     }
 
     // Sort/filter mode for the saved units list (persisted)
@@ -380,10 +438,11 @@ const ImageOCR = (() => {
         const imageFiles = files.filter(file => file.type.startsWith('image/'));
         const csvFiles = files.filter(file => file.type === 'text/csv' || /\.csv$/i.test(file.name));
         const totalSources = imageFiles.length + csvFiles.length;
-        const rawParts = [];
         const csvImports = [];
+        const aggregateData = createEmptyRecognizedData();
 
         translationRequestSeq += 1;
+        uploadedImageReferences = [];
         progressEl.style.display = 'block';
         document.getElementById('upload-results').style.display = 'none';
         recognizedData = createEmptyRecognizedData();
@@ -418,7 +477,17 @@ const ImageOCR = (() => {
                     }
                 });
 
-                rawParts.push(buildUsableRawTextFromOcr(result.data));
+                const sourceRef = {
+                    kind: 'image',
+                    index: i,
+                    name: file.name,
+                    imageSrc: imageData
+                };
+                uploadedImageReferences.push(sourceRef);
+                const rawText = buildUsableRawTextFromOcr(result.data);
+                const parsedData = parseOcrTextToRecognizedData(rawText, aggregateData);
+                attachSourceReference(parsedData, sourceRef);
+                mergeRecognizedData(aggregateData, parsedData);
                 sourceIndex += 1;
             }
 
@@ -446,13 +515,7 @@ const ImageOCR = (() => {
                 );
             }
 
-            if (rawParts.length > 0) {
-                const rawText = rawParts.join('\n');
-                console.log('[OCR] Raw text:', rawText);
-                smartParse(rawText);
-            } else {
-                recognizedData = createEmptyRecognizedData('');
-            }
+            recognizedData = cloneRecognizedData(aggregateData);
 
             csvImports.forEach((csvData) => {
                 csvData.words.forEach(word => addToSection(word, 'words'));
@@ -465,6 +528,7 @@ const ImageOCR = (() => {
                 recognizedData.unitName = deriveUnitNameFromFiles(files);
             }
 
+            console.log('[OCR] Raw text:', recognizedData.raw);
             autoTranslateAll();
 
             const totalItems = recognizedData.words.length + recognizedData.phrases.length + recognizedData.sentences.length;
@@ -1476,13 +1540,30 @@ const ImageOCR = (() => {
         return previewImage && previewImage.getAttribute('src') ? previewImage.getAttribute('src') : '';
     }
 
+    function getReferenceForItem(type, idx) {
+        const item = recognizedData[type] && recognizedData[type][idx];
+        if (item && item._sourceRef && item._sourceRef.imageSrc) {
+            return item._sourceRef;
+        }
+        return uploadedImageReferences[0] || null;
+    }
+
     function onProofreadEnglishFocus(inputEl) {
         const panel = document.getElementById('proofread-reference-panel');
         const image = document.getElementById('proofread-reference-image');
-        const src = getReferenceImageSrc();
+        const summary = panel ? panel.querySelector('.proofread-reference-summary') : null;
+        const type = inputEl.dataset.type;
+        const idx = parseInt(inputEl.dataset.idx, 10);
+        const sourceRef = getReferenceForItem(type, idx);
+        const src = sourceRef && sourceRef.imageSrc ? sourceRef.imageSrc : getReferenceImageSrc();
         if (!panel || !image || !src) return;
 
         image.src = src;
+        if (summary) {
+            summary.textContent = sourceRef && sourceRef.name
+                ? `当前内容来自：${sourceRef.name}`
+                : '原图参考 Original image reference';
+        }
         panel.style.display = 'block';
         panel.classList.add('is-visible');
         inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2045,6 +2126,7 @@ const ImageOCR = (() => {
     // Clear uploaded image and results
     function clearImage() {
         translationRequestSeq += 1;
+        uploadedImageReferences = [];
         hideReferenceImagePanel();
         document.getElementById('upload-preview').style.display = 'none';
         document.getElementById('upload-area').style.display = 'block';
