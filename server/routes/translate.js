@@ -29,6 +29,14 @@ function normalizeKey(text) {
     return String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+function stripTags(text) {
+    return String(text || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeSentenceKey(text) {
+    return normalizeKey(text).replace(/[.?!;,:'"()\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 // Try textbook dictionary, including simple morphological variants (plural, -ed, -ing, -ly)
 function lookupTextbook(text) {
     const key = normalizeKey(text);
@@ -75,17 +83,89 @@ function isBadTranslation(zh, src) {
     return false;
 }
 
-async function fetchWithTimeout(url, ms = 7000) {
+async function fetchWithTimeout(url, ms = 7000, extraHeaders = {}) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), ms);
     try {
         return await fetch(url, {
             signal: ctrl.signal,
-            headers: { 'User-Agent': 'Mozilla/5.0 typing-game-translator' }
+            headers: {
+                'User-Agent': 'Mozilla/5.0 typing-game-translator',
+                ...extraHeaders
+            }
         });
     } finally {
         clearTimeout(timer);
     }
+}
+
+function extractYoudaoEcTranslation(data) {
+    const trs = data && data.ec && data.ec.word && Array.isArray(data.ec.word.trs)
+        ? data.ec.word.trs
+        : [];
+
+    const values = trs.map(item => {
+        if (!item) return '';
+        if (typeof item.tran === 'string') return stripTags(item.tran);
+        if (item.tr && Array.isArray(item.tr) && item.tr[0] && item.tr[0].l && Array.isArray(item.tr[0].l.i)) {
+            return stripTags(item.tr[0].l.i.join('；'));
+        }
+        return '';
+    }).filter(Boolean);
+
+    return values.join('；');
+}
+
+function extractYoudaoWebTranslation(data) {
+    const items = data && data.web_trans && Array.isArray(data.web_trans['web-translation'])
+        ? data.web_trans['web-translation']
+        : [];
+
+    for (const item of items) {
+        const trans = Array.isArray(item && item.trans) ? item.trans : [];
+        for (const t of trans) {
+            const value = stripTags(t && (t.value || (t.summary && t.summary.line) || ''));
+            if (value) return value;
+        }
+    }
+
+    return '';
+}
+
+async function translateViaYoudao(text) {
+    const query = String(text || '').trim();
+    if (!query) return '';
+
+    const url = `https://dict.youdao.com/jsonapi_s?q=${encodeURIComponent(query)}&doctype=json&jsonversion=4`;
+    const res = await fetchWithTimeout(url, 7000, { Referer: 'https://dict.youdao.com/' });
+    if (!res.ok) return '';
+
+    let data;
+    try {
+        data = await res.json();
+    } catch (_) {
+        return '';
+    }
+
+    const normalizedQuery = normalizeSentenceKey(query);
+    const pairs = data && data.blng_sents_part && Array.isArray(data.blng_sents_part['sentence-pair'])
+        ? data.blng_sents_part['sentence-pair']
+        : [];
+
+    for (const pair of pairs) {
+        const en = stripTags(pair && (pair.sentence || pair['sentence-eng'] || ''));
+        const cn = stripTags(pair && pair['sentence-translation']);
+        if (en && cn && normalizeSentenceKey(en) === normalizedQuery) {
+            return cn;
+        }
+    }
+
+    const direct =
+        stripTags(data && data.fanyi && data.fanyi.tran) ||
+        extractYoudaoEcTranslation(data) ||
+        extractYoudaoWebTranslation(data);
+
+    return direct;
 }
 
 // Google Translate's public gtx endpoint (no key required)
@@ -119,8 +199,6 @@ async function translateViaMyMemory(text) {
 async function translateOne(text) {
     const key = normalizeKey(text);
     if (!key) return '';
-    const cached = getCached.get(key);
-    if (cached) return cached.zh_text;
 
     // 0) Try offline textbook dictionary first (highest priority for known exam words)
     const fromBook = lookupTextbook(text);
@@ -129,12 +207,21 @@ async function translateOne(text) {
         return fromBook;
     }
 
-    // 1) Google
+    const cached = getCached.get(key);
+    if (cached) return cached.zh_text;
+
+    // 1) Youdao
     let zh = '';
-    try { zh = await translateViaGoogle(text); } catch (e) { /* ignore */ }
+    try { zh = await translateViaYoudao(text); } catch (e) { /* ignore */ }
     if (isBadTranslation(zh, text)) zh = '';
 
-    // 2) MyMemory fallback
+    // 2) Google
+    if (!zh) {
+        try { zh = await translateViaGoogle(text); } catch (e) { /* ignore */ }
+        if (isBadTranslation(zh, text)) zh = '';
+    }
+
+    // 3) MyMemory fallback
     if (!zh) {
         try { zh = await translateViaMyMemory(text); } catch (e) { /* ignore */ }
         if (isBadTranslation(zh, text)) zh = '';
@@ -202,4 +289,3 @@ router.post('/', async (req, res) => {
 });
 
 module.exports = router;
-
