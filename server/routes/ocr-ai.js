@@ -3,6 +3,15 @@ const express = require('express');
 const router = express.Router();
 
 function getVisionConfig() {
+    if (process.env.DASHSCOPE_API_KEY) {
+        return {
+            provider: 'dashscope',
+            apiKey: process.env.DASHSCOPE_API_KEY,
+            model: process.env.DASHSCOPE_VISION_MODEL || 'qwen3.6-plus',
+            url: process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
+        };
+    }
+
     if (process.env.GEMINI_API_KEY) {
         const model = process.env.GEMINI_VISION_MODEL || 'gemini-2.5-flash';
         return {
@@ -203,6 +212,10 @@ async function callVisionModel(imageData, fileName, hintText) {
         headers['Authorization'] = `Bearer ${config.apiKey}`;
     }
 
+    const imageContent = config.provider === 'dashscope'
+        ? { type: 'image_url', image_url: imageData }
+        : { type: 'image_url', image_url: { url: imageData } };
+
     const body = {
         temperature: 0.1,
         max_tokens: 900,
@@ -215,7 +228,7 @@ async function callVisionModel(imageData, fileName, hintText) {
                 role: 'user',
                 content: [
                     { type: 'text', text: prompt },
-                    { type: 'image_url', image_url: { url: imageData } }
+                    imageContent
                 ]
             }
         ]
