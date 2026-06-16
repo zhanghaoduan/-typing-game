@@ -122,10 +122,10 @@ const ImageOCR = (() => {
         const wordSignals = ['单词', '词汇', 'word', 'words', 'vocabulary'];
 
         const hasSignal = (signals) => signals.some(signal =>
-            name.includes(signal.toLowerCase()) ||
             normalizedRaw.includes(signal.toLowerCase()) ||
             compactRaw.includes(signal.replace(/\s+/g, ''))
         );
+        const hasFileNameSignal = (signals) => signals.some(signal => name.includes(signal.toLowerCase()));
         const hasTitleSignal = (signals) => signals.some(signal =>
             normalizedTitleContext.includes(signal.toLowerCase()) ||
             compactTitleContext.includes(signal.replace(/\s+/g, ''))
@@ -138,6 +138,9 @@ const ImageOCR = (() => {
         const hasSentenceSignal = hasSignal(sentenceSignals);
         const hasPhraseSignal = hasSignal(phraseSignals);
         const hasWordSignal = hasSignal(wordSignals);
+        const hasSentenceFileNameSignal = hasFileNameSignal(sentenceSignals);
+        const hasPhraseFileNameSignal = hasFileNameSignal(phraseSignals);
+        const hasWordFileNameSignal = hasFileNameSignal(wordSignals);
 
         let forceSection = null;
         if (hasSentenceTitleSignal) forceSection = 'sentences';
@@ -152,10 +155,43 @@ const ImageOCR = (() => {
             .map(line => line.trim())
             .filter(line => /^\s*\d{1,2}[.\s、:]/.test(line) && /[A-Za-z]{2,}/.test(line));
 
-        // Only let content heuristics decide when the file name / title signals are ambiguous.
-        if (!hasPhraseTitleSignal && !hasWordTitleSignal && !hasPhraseSignal && !hasWordSignal && numberedLines.length >= 3) {
+        const sentenceLikeCount = numberedLines.filter(line => {
+            const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
+            const wordCount = countEnglishWords(english);
+            if (wordCount < 3) return false;
+            if (wordCount >= 6) return true;
+            if (/[,.!?]/.test(english)) return true;
+            if (/^[A-Z]/.test(english)) return true;
+            if (/^(i|we|you|he|she|it|they|this|that|these|those|my|our|his|her|their|tom|love|a|an|the|in|hard)\b/i.test(english)) return true;
+            if (/\b(keep|kept|make|made|give|gave|love|loved|is|are|was|were|do|did|have|had|can|could|will|would|should|there|happy|work|working)\b/i.test(english)) return true;
+            return false;
+        }).length;
+
+        const avgWords = numberedLines.length > 0
+            ? numberedLines.reduce((sum, line) => {
+                const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
+                return sum + countEnglishWords(english);
+            }, 0) / numberedLines.length
+            : 0;
+
+        const strongSentenceContent = numberedLines.length >= 3 && (
+            sentenceLikeCount >= Math.max(3, Math.ceil(numberedLines.length * 0.6)) ||
+            avgWords >= 5 ||
+            numberedLines.filter(line => {
+                const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
+                return countEnglishWords(english) >= 5;
+            }).length >= Math.max(3, numberedLines.length - 1)
+        );
+
+        // Strong numbered sentence content can override a misleading file name,
+        // but not an explicit phrase/word title recognized from the image itself.
+        if (!hasPhraseTitleSignal && !hasWordTitleSignal && strongSentenceContent) {
+            forceSection = 'sentences';
+        }
+
+        if (!forceSection && numberedLines.length >= 3) {
             const sentenceStarters = /^(i|we|you|he|she|it|they|this|that|these|those|my|our|his|her|their|tom|love|a|an|the|in|hard)\b/i;
-            const sentenceLikeCount = numberedLines.filter(line => {
+            const fallbackSentenceLikeCount = numberedLines.filter(line => {
                 const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
                 const wordCount = countEnglishWords(english);
                 if (wordCount < 3) return false;
@@ -167,17 +203,18 @@ const ImageOCR = (() => {
                 return false;
             }).length;
 
-            const avgWords = numberedLines.reduce((sum, line) => {
-                const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
-                return sum + countEnglishWords(english);
-            }, 0) / numberedLines.length;
-
             if (
-                sentenceLikeCount >= Math.max(3, Math.ceil(numberedLines.length * 0.6)) ||
+                fallbackSentenceLikeCount >= Math.max(3, Math.ceil(numberedLines.length * 0.6)) ||
                 avgWords >= 5
             ) {
                 forceSection = 'sentences';
             }
+        }
+
+        if (!forceSection) {
+            if (hasSentenceFileNameSignal) forceSection = 'sentences';
+            else if (hasPhraseFileNameSignal) forceSection = 'phrases';
+            else if (hasWordFileNameSignal) forceSection = 'words';
         }
 
         return { forceSection };
@@ -1412,7 +1449,7 @@ const ImageOCR = (() => {
         let targetSection = section || 'words';
         const wordCount = text.split(/\s+/).length;
 
-        if (splitSemicolonPhraseCandidates(text).length > 1) {
+        if (!forceSection && splitSemicolonPhraseCandidates(text).length > 1) {
             targetSection = 'phrases';
         }
 
