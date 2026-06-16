@@ -106,6 +106,23 @@ const ImageOCR = (() => {
             .trim();
     }
 
+    function sanitizeItemForPersistence(item) {
+        return {
+            en: String(item && item.en || '').trim(),
+            cn: String(item && item.cn || '').trim(),
+            difficulty: Number(item && item.difficulty) || 1
+        };
+    }
+
+    function buildPersistableUnit(unit) {
+        return {
+            ...unit,
+            words: (unit.words || []).map(sanitizeItemForPersistence),
+            phrases: (unit.phrases || []).map(sanitizeItemForPersistence),
+            sentences: (unit.sentences || []).map(sanitizeItemForPersistence)
+        };
+    }
+
     function expandSentenceItemsFromFullOcr(data, fullOcrText) {
         if (!data || !Array.isArray(data.sentences) || data.sentences.length === 0) return data;
 
@@ -327,12 +344,24 @@ const ImageOCR = (() => {
         return parsed;
     }
 
+    function detectExpectedNumberedItemCount(text) {
+        const matches = [...String(text || '').matchAll(/(?:^|\s)(\d{1,2})[.\s、:]+/g)];
+        if (matches.length === 0) return 0;
+        return matches.reduce((max, match) => Math.max(max, Number(match[1]) || 0), 0);
+    }
+
     async function fetchAiStructureFromImage(imageData, fileName, hintText = '', expectedSection = '') {
         try {
             const res = await fetch('/api/ocr/ai-sentences', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ imageData, fileName, hintText, expectedSection })
+                body: JSON.stringify({
+                    imageData,
+                    fileName,
+                    hintText,
+                    expectedSection,
+                    expectedCount: detectExpectedNumberedItemCount(hintText)
+                })
             });
             if (!res.ok) return null;
             const data = await res.json();
@@ -2125,17 +2154,18 @@ const ImageOCR = (() => {
     async function saveUnitToServer(unit) {
         if (!AuthUI.isLoggedIn()) return null;
         try {
+            const persistableUnit = buildPersistableUnit(unit);
             const res = await AuthUI.apiRequest('/units', {
                 method: 'POST',
                 body: JSON.stringify({
-                    name: unit.name,
-                    words: unit.words,
-                    phrases: unit.phrases,
-                    sentences: unit.sentences,
-                    publisher: unit.publisher || '',
-                    grade: unit.grade || '',
-                    book: unit.book || '',
-                    unit_no: unit.unitNo || 0
+                    name: persistableUnit.name,
+                    words: persistableUnit.words,
+                    phrases: persistableUnit.phrases,
+                    sentences: persistableUnit.sentences,
+                    publisher: persistableUnit.publisher || '',
+                    grade: persistableUnit.grade || '',
+                    book: persistableUnit.book || '',
+                    unit_no: persistableUnit.unitNo || 0
                 })
             });
             if (!res.ok) return null;
@@ -2149,17 +2179,18 @@ const ImageOCR = (() => {
     async function updateUnitOnServer(id, unit) {
         if (!AuthUI.isLoggedIn()) return null;
         try {
+            const persistableUnit = buildPersistableUnit(unit);
             const res = await AuthUI.apiRequest(`/units/${id}`, {
                 method: 'PUT',
                 body: JSON.stringify({
-                    name: unit.name,
-                    words: unit.words,
-                    phrases: unit.phrases,
-                    sentences: unit.sentences,
-                    publisher: unit.publisher || '',
-                    grade: unit.grade || '',
-                    book: unit.book || '',
-                    unit_no: unit.unitNo || 0
+                    name: persistableUnit.name,
+                    words: persistableUnit.words,
+                    phrases: persistableUnit.phrases,
+                    sentences: persistableUnit.sentences,
+                    publisher: persistableUnit.publisher || '',
+                    grade: persistableUnit.grade || '',
+                    book: persistableUnit.book || '',
+                    unit_no: persistableUnit.unitNo || 0
                 })
             });
             if (!res.ok) return null;
@@ -2204,12 +2235,13 @@ const ImageOCR = (() => {
             phrases: [...recognizedData.phrases],
             sentences: [...recognizedData.sentences]
         };
+        const persistableUnit = buildPersistableUnit(unit);
 
         // Save to server if logged in
         if (AuthUI.isLoggedIn()) {
             if (recognizedData._editingServerId) {
                 // Update existing unit on server
-                const result = await updateUnitOnServer(recognizedData._editingServerId, unit);
+                const result = await updateUnitOnServer(recognizedData._editingServerId, persistableUnit);
                 if (result) {
                     recognizedData._editingServerId = null;
                     recognizedData._editingIdx = null;
@@ -2219,7 +2251,7 @@ const ImageOCR = (() => {
                 }
             } else {
                 // Save new unit to server
-                const result = await saveUnitToServer(unit);
+                const result = await saveUnitToServer(persistableUnit);
                 if (result) {
                     await renderSavedUnits();
                     alert(`✅ 已保存 "${unitName}"\n单词: ${unit.words.length} | 词组: ${unit.phrases.length} | 句子: ${unit.sentences.length}`);
@@ -2234,12 +2266,12 @@ const ImageOCR = (() => {
         if (recognizedData._editingIdx !== undefined && recognizedData._editingIdx !== null) {
             const editIdx = recognizedData._editingIdx;
             if (editIdx >= 0 && editIdx < units.length) {
-                unit.id = units[editIdx].id;
-                unit.createdAt = units[editIdx].createdAt;
-                unit.updatedAt = new Date().toISOString();
-                units[editIdx] = unit;
+                persistableUnit.id = units[editIdx].id;
+                persistableUnit.createdAt = units[editIdx].createdAt;
+                persistableUnit.updatedAt = new Date().toISOString();
+                units[editIdx] = persistableUnit;
             } else {
-                units.push(unit);
+                units.push(persistableUnit);
             }
             recognizedData._editingIdx = null;
         } else {
@@ -2248,9 +2280,11 @@ const ImageOCR = (() => {
                 if (!confirm(`"${unitName}" 已存在，是否覆盖？\n"${unitName}" already exists. Overwrite?`)) {
                     return;
                 }
-                units[existingIdx] = unit;
+                persistableUnit.id = units[existingIdx].id || persistableUnit.id;
+                persistableUnit.createdAt = units[existingIdx].createdAt || persistableUnit.createdAt;
+                units[existingIdx] = persistableUnit;
             } else {
-                units.push(unit);
+                units.push(persistableUnit);
             }
         }
 
