@@ -310,6 +310,37 @@ const ImageOCR = (() => {
         return seed;
     }
 
+    function buildRecognizedDataFromAiSentences(sentences, baseData, rawText = '') {
+        const snapshot = recognizedData;
+        recognizedData = createParseSeed(baseData);
+        recognizedData.raw = rawText;
+
+        sentences.forEach(sentence => {
+            addToSection(sentence, 'sentences', { forceSection: true });
+        });
+
+        autoTranslateAll();
+        const parsed = cloneRecognizedData(recognizedData);
+        recognizedData = snapshot;
+        return parsed;
+    }
+
+    async function fetchAiSentencesFromImage(imageData, fileName, hintText = '') {
+        try {
+            const res = await fetch('/api/ocr/ai-sentences', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ imageData, fileName, hintText })
+            });
+            if (!res.ok) return [];
+            const data = await res.json();
+            return Array.isArray(data && data.sentences) ? data.sentences : [];
+        } catch (err) {
+            console.warn('[OCR] AI sentence extraction failed:', err);
+            return [];
+        }
+    }
+
     function parseOcrTextToRecognizedData(rawText, baseData, parseHint = {}) {
         const snapshot = recognizedData;
         recognizedData = createParseSeed(baseData);
@@ -893,10 +924,21 @@ const ImageOCR = (() => {
                 const rawText = parseHint.forceSection === 'sentences'
                     ? buildSentenceExerciseRawTextFromOcr(result.data)
                     : baseRawText;
-                const parsedData = expandSentenceItemsFromFullOcr(
-                    parseOcrTextToRecognizedData(rawText, aggregateData, parseHint),
-                    parseHint.fullOcrText
-                );
+                let parsedData = null;
+
+                if (parseHint.forceSection === 'sentences') {
+                    const aiSentences = await fetchAiSentencesFromImage(imageData, file.name, parseHint.fullOcrText);
+                    if (aiSentences.length > 0) {
+                        parsedData = buildRecognizedDataFromAiSentences(aiSentences, aggregateData, rawText);
+                    }
+                }
+
+                if (!parsedData) {
+                    parsedData = expandSentenceItemsFromFullOcr(
+                        parseOcrTextToRecognizedData(rawText, aggregateData, parseHint),
+                        parseHint.fullOcrText
+                    );
+                }
                 attachSourceReference(parsedData, sourceRef);
                 mergeRecognizedData(aggregateData, parsedData);
                 sourceIndex += 1;

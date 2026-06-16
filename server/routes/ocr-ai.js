@@ -1,0 +1,176 @@
+const express = require('express');
+
+const router = express.Router();
+
+function getVisionConfig() {
+    if (process.env.OCR_VISION_API_KEY && process.env.OCR_VISION_MODEL) {
+        return {
+            provider: 'custom',
+            apiKey: process.env.OCR_VISION_API_KEY,
+            model: process.env.OCR_VISION_MODEL,
+            url: process.env.OCR_VISION_BASE_URL || 'https://api.openai.com/v1/chat/completions'
+        };
+    }
+
+    if (process.env.OPENAI_API_KEY) {
+        return {
+            provider: 'openai',
+            apiKey: process.env.OPENAI_API_KEY,
+            model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+            url: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1/chat/completions'
+        };
+    }
+
+    if (process.env.GITHUB_TOKEN && process.env.GITHUB_MODELS_MODEL) {
+        return {
+            provider: 'github-models',
+            apiKey: process.env.GITHUB_TOKEN,
+            model: process.env.GITHUB_MODELS_MODEL,
+            url: process.env.GITHUB_MODELS_URL || 'https://models.inference.ai.azure.com/chat/completions'
+        };
+    }
+
+    return null;
+}
+
+function extractMessageText(payload) {
+    const message = payload && payload.choices && payload.choices[0] && payload.choices[0].message;
+    const content = message && message.content;
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+        return content
+            .map(part => {
+                if (!part) return '';
+                if (typeof part === 'string') return part;
+                if (typeof part.text === 'string') return part.text;
+                return '';
+            })
+            .join('\n')
+            .trim();
+    }
+    return '';
+}
+
+function parseJsonObject(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return null;
+
+    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const candidate = fenced ? fenced[1].trim() : raw;
+
+    try {
+        return JSON.parse(candidate);
+    } catch (_) {
+        const objectMatch = candidate.match(/\{[\s\S]*\}/);
+        if (!objectMatch) return null;
+        try {
+            return JSON.parse(objectMatch[0]);
+        } catch (_) {
+            return null;
+        }
+    }
+}
+
+function normalizeSentence(text) {
+    return String(text || '')
+        .replace(/^\s*\d{1,2}[.\s、:]+/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function sanitizeSentences(list) {
+    const seen = new Set();
+    return (Array.isArray(list) ? list : [])
+        .map(normalizeSentence)
+        .filter(item => item && /[A-Za-z]{2,}/.test(item))
+        .filter(item => {
+            const key = item.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+}
+
+async function callVisionModel(imageData, fileName, hintText) {
+    const config = getVisionConfig();
+    if (!config) {
+        return { available: false, sentences: [] };
+    }
+
+    const prompt = [
+        'Read this English exercise image carefully.',
+        'If the image is a numbered sentence-translation exercise, extract the COMPLETE English sentence after each Arabic numeral.',
+        'Do not truncate sentences. Preserve punctuation, apostrophes, slashes, and choice forms like keep/kept or made/makes.',
+        'Ignore Chinese translations and headers except to decide whether the exercise is about sentences.',
+        'If the image is not a sentence exercise, return an empty array.',
+        'Return ONLY JSON in this exact shape: {"sentences":["..."]}.',
+        fileName ? `File name hint: ${fileName}` : '',
+        hintText ? `OCR hint text: ${String(hintText).slice(0, 4000)}` : ''
+    ].filter(Boolean).join('\n');
+
+    const response = await fetch(config.url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${config.apiKey}`
+        },
+        body: JSON.stringify({
+            model: config.model,
+            temperature: 0.1,
+            max_tokens: 900,
+            messages: [
+                {
+                    role: 'system',
+                    content: 'You extract complete English exercise sentences from images and respond with JSON only.'
+                },
+                {
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: prompt },
+                        { type: 'image_url', image_url: { url: imageData } }
+                    ]
+                }
+            ]
+        })
+    });
+
+    if (!response.ok) {
+        const message = await response.text().catch(() => '');
+        throw new Error(`Vision API failed: ${response.status} ${message}`.trim());
+    }
+
+    const payload = await response.json();
+    const parsed = parseJsonObject(extractMessageText(payload));
+    return {
+        available: true,
+        provider: config.provider,
+        sentences: sanitizeSentences(parsed && parsed.sentences)
+    };
+}
+
+router.post('/ai-sentences', async (req, res) => {
+    try {
+        const imageData = String(req.body && req.body.imageData || '').trim();
+        const fileName = String(req.body && req.body.fileName || '').trim();
+        const hintText = String(req.body && req.body.hintText || '').trim();
+
+        if (!imageData.startsWith('data:image/')) {
+            return res.status(400).json({ error: 'imageData is required' });
+        }
+
+        const result = await callVisionModel(imageData, fileName, hintText);
+        if (!result.available) {
+            return res.status(503).json({ error: 'AI OCR not configured' });
+        }
+
+        return res.json({
+            sentences: result.sentences,
+            provider: result.provider || 'unknown'
+        });
+    } catch (err) {
+        console.warn('[ocr-ai] request failed:', err.message);
+        return res.status(500).json({ error: 'AI OCR failed' });
+    }
+});
+
+module.exports = router;
