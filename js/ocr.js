@@ -208,13 +208,20 @@ const ImageOCR = (() => {
         const hasPhraseFileNameSignal = hasFileNameSignal(phraseSignals);
         const hasWordFileNameSignal = hasFileNameSignal(wordSignals);
 
+        const titleSectionSignalCount = [hasWordTitleSignal, hasPhraseTitleSignal, hasSentenceTitleSignal].filter(Boolean).length;
+        const bodySectionSignalCount = [hasWordSignal, hasPhraseSignal, hasSentenceSignal].filter(Boolean).length;
+        const mixedSections = titleSectionSignalCount >= 2 || bodySectionSignalCount >= 2;
+        const unitNameHint = stripFileExtension(fileName).match(/Unit\s*\d+[\s:.\-]*[A-Za-z][A-Za-z\s'-]*/i)?.[0]?.trim() || '';
+
         let forceSection = null;
-        if (hasSentenceTitleSignal) forceSection = 'sentences';
-        else if (hasPhraseTitleSignal) forceSection = 'phrases';
-        else if (hasWordTitleSignal) forceSection = 'words';
-        else if (hasSentenceSignal) forceSection = 'sentences';
-        else if (hasPhraseSignal) forceSection = 'phrases';
-        else if (hasWordSignal) forceSection = 'words';
+        if (!mixedSections) {
+            if (hasSentenceTitleSignal) forceSection = 'sentences';
+            else if (hasPhraseTitleSignal) forceSection = 'phrases';
+            else if (hasWordTitleSignal) forceSection = 'words';
+            else if (hasSentenceSignal) forceSection = 'sentences';
+            else if (hasPhraseSignal) forceSection = 'phrases';
+            else if (hasWordSignal) forceSection = 'words';
+        }
 
         const numberedLines = raw
             .split(/\r?\n/)
@@ -307,13 +314,13 @@ const ImageOCR = (() => {
             }
         }
 
-        if (!forceSection) {
+        if (!forceSection && !mixedSections) {
             if (hasSentenceFileNameSignal) forceSection = 'sentences';
             else if (hasPhraseFileNameSignal) forceSection = 'phrases';
             else if (hasWordFileNameSignal) forceSection = 'words';
         }
 
-        return { forceSection };
+        return { forceSection, mixedSections, unitNameHint };
     }
 
     function createParseSeed(baseData) {
@@ -353,6 +360,7 @@ const ImageOCR = (() => {
     function shouldUseAiForImage(parseHint, rawText, fileName = '') {
         const text = String(rawText || '').trim();
         const expectedCount = detectExpectedNumberedItemCount(text);
+        if (parseHint && parseHint.mixedSections) return false;
         if (parseHint && parseHint.forceSection === 'sentences') return true;
         if (expectedCount > 0) return true;
         if (!text || countEnglishWords(text) < 3) return true;
@@ -1309,6 +1317,12 @@ const ImageOCR = (() => {
         const names = (files || []).map(file => String(file && file.name || '')).filter(Boolean);
         if (names.length === 0) return '';
 
+        const unitStyleName = names
+            .map(stripFileExtension)
+            .map(name => name.match(/Unit\s*\d+[\s:.\-]*[A-Za-z][A-Za-z\s'-]*/i)?.[0]?.trim() || '')
+            .find(Boolean);
+        if (unitStyleName) return unitStyleName;
+
         const dateMatches = names
             .flatMap(name => [...name.matchAll(/(20\d{6})/g)].map(match => match[1]))
             .sort();
@@ -1482,6 +1496,110 @@ const ImageOCR = (() => {
         };
     }
 
+    function detectExplicitSectionHeader(line) {
+        const text = String(line || '').trim().toLowerCase();
+        if (!text) return null;
+        if (/(看音标写单词|写单词|单词|词汇|vocabulary|words?)/i.test(text)) return 'words';
+        if (/(词组练习|词组|短语|phrases?)/i.test(text)) return 'phrases';
+        if (/(翻译句子|句子|translate the sentences|translate sentences|sentences?)/i.test(text)) return 'sentences';
+        return null;
+    }
+
+    function parseMixedSectionExercise(rawText, parseHint = {}) {
+        const prevMeta = {
+            publisher: recognizedData.publisher || '',
+            grade: recognizedData.grade || '',
+            book: recognizedData.book || ''
+        };
+        recognizedData = createEmptyRecognizedData(rawText);
+        recognizedData.publisher = prevMeta.publisher;
+        recognizedData.grade = prevMeta.grade;
+        recognizedData.book = prevMeta.book;
+        recognizedData.unitName = parseHint.unitNameHint || '';
+
+        const lines = String(rawText || '').split('\n').map(line => line.trim()).filter(Boolean);
+        const fallbackSentences = extractNumberedSentenceFallbacks(parseHint.fullOcrText || rawText);
+        let activeSection = null;
+        let currentSentence = '';
+        let currentNumber = null;
+
+        const flushSentence = () => {
+            if (!currentSentence) return;
+            addToSection(
+                completeForcedSentence(currentSentence, currentNumber, fallbackSentences),
+                'sentences',
+                { forceSection: true }
+            );
+            currentSentence = '';
+            currentNumber = null;
+        };
+
+        for (const rawLine of lines) {
+            const line = fixCommonOcrTextIssues(trimTrailingOcrNoise(rawLine), true);
+            if (!line) continue;
+
+            const unitMatch = line.match(/Unit\s*\d+[\s:.\-]*[A-Za-z][A-Za-z\s'-]*/i);
+            if (unitMatch && !recognizedData.unitName) {
+                recognizedData.unitName = unitMatch[0].trim();
+            }
+
+            const headerSection = detectExplicitSectionHeader(line);
+            if (headerSection) {
+                flushSentence();
+                activeSection = headerSection;
+                continue;
+            }
+
+            if (!activeSection) continue;
+
+            if (activeSection === 'sentences') {
+                const numberedItems = extractItems(line);
+                if (numberedItems.length > 1) {
+                    flushSentence();
+                    numberedItems.forEach(item => addToSection(item, 'sentences', { forceSection: true }));
+                    continue;
+                }
+
+                const numberedMatch = line.match(/^\s*(\d{1,2})[.\s、:]+(.*)$/);
+                if (numberedMatch) {
+                    flushSentence();
+                    currentNumber = Number(numberedMatch[1]);
+                    currentSentence = fixCommonOcrTextIssues(trimTrailingCarryover(trimTrailingOcrNoise(numberedMatch[2] || '')), true);
+                    continue;
+                }
+
+                const english = extractEnglish(line);
+                if (english) {
+                    currentSentence = currentSentence
+                        ? joinSentenceParts(currentSentence, english)
+                        : fixCommonOcrTextIssues(english, true);
+                }
+                continue;
+            }
+
+            const items = extractItems(line);
+            if (items.length > 0) {
+                items.forEach(item => addToSection(item, activeSection, { forceSection: true }));
+                continue;
+            }
+
+            const english = extractEnglish(line);
+            if (!english) continue;
+            if (activeSection === 'words') {
+                addToSection(english, 'words', { forceSection: true });
+            } else {
+                splitSemicolonPhraseCandidates(english).forEach(item => addToSection(item, 'phrases', { forceSection: true }));
+            }
+        }
+
+        flushSentence();
+        if (!recognizedData.unitName) {
+            recognizedData.unitName = parseHint.unitNameHint || '';
+        }
+        autoTranslateAll();
+        return recognizedData.words.length + recognizedData.phrases.length + recognizedData.sentences.length;
+    }
+
     // ========== SMART STRUCTURED PARSING ==========
     function smartParse(rawText, parseHint = {}) {
         const prevMeta = {
@@ -1497,13 +1615,33 @@ const ImageOCR = (() => {
         const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
         const forcedSection = parseHint.forceSection || null;
 
+        if (parseHint.mixedSections) {
+            const mixedTotal = parseMixedSectionExercise(rawText, parseHint);
+            if (mixedTotal >= 5) {
+                console.log('[OCR] Mixed-section parsed:', recognizedData.unitName,
+                    '| Words:', recognizedData.words.length,
+                    '| Phrases:', recognizedData.phrases.length,
+                    '| Sentences:', recognizedData.sentences.length
+                );
+                return;
+            }
+
+            recognizedData = createEmptyRecognizedData(rawText);
+            recognizedData.publisher = prevMeta.publisher;
+            recognizedData.grade = prevMeta.grade;
+            recognizedData.book = prevMeta.book;
+        }
+
         // 1. Detect unit name
         for (const line of lines) {
-            const unitMatch = line.match(/Unit\s*\d+[\s:.\-]*[A-Za-z\s]+/i);
+            const unitMatch = line.match(/Unit\s*\d+[\s:.\-]*[A-Za-z][A-Za-z\s'-]*/i);
             if (unitMatch) {
                 recognizedData.unitName = unitMatch[0].trim();
                 break;
             }
+        }
+        if (!recognizedData.unitName && parseHint.unitNameHint) {
+            recognizedData.unitName = parseHint.unitNameHint;
         }
 
         // 2. Collect all content lines (lines with valid English)
@@ -1519,7 +1657,7 @@ const ImageOCR = (() => {
             // Skip unit title
             if (/Unit\s*\d+/i.test(line) && line.match(/[A-Z]/)) {
                 if (recognizedData.unitName === '') {
-                    const m = line.match(/Unit\s*\d+[\s:.\-]*[A-Za-z\s]+/i);
+                    const m = line.match(/Unit\s*\d+[\s:.\-]*[A-Za-z][A-Za-z\s'-]*/i);
                     if (m) recognizedData.unitName = m[0].trim();
                 }
                 continue;
@@ -1697,7 +1835,7 @@ const ImageOCR = (() => {
             if (text.length >= 2 && text.match(/[a-zA-Z]{2,}/)) {
                 // Remove non-English garbage but keep dots/ellipsis (for "see...as")
                 const cleaned = trimTrailingCarryover(
-                    trimTrailingOcrNoise(text.replace(/[^a-zA-Z0-9\s.,!?'"\-…]/g, '').trim())
+                    trimTrailingOcrNoise(text.replace(/[^a-zA-Z0-9\s.,!?'"\-\/…]/g, '').trim())
                 );
                 if (cleaned.length >= 2) {
                     splitSemicolonPhraseCandidates(cleaned).forEach(item => items.push(item));
