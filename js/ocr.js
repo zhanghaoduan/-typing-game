@@ -98,6 +98,55 @@ const ImageOCR = (() => {
         });
     }
 
+    function normalizeSentencePrefix(text) {
+        return String(text || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function expandSentenceItemsFromFullOcr(data, fullOcrText) {
+        if (!data || !Array.isArray(data.sentences) || data.sentences.length === 0) return data;
+
+        const candidates = [...extractNumberedSentenceFallbacks(fullOcrText).values()];
+        if (candidates.length === 0) return data;
+
+        data.sentences = data.sentences.map(item => {
+            const current = String(item.en || '').trim();
+            if (!current) return item;
+
+            const currentWords = countEnglishWords(current);
+            const needsExpansion = currentWords <= 5 || !/[.!?]$/.test(current);
+            if (!needsExpansion) return item;
+
+            const currentPrefix = normalizeSentencePrefix(current);
+            if (!currentPrefix) return item;
+
+            let best = '';
+            candidates.forEach(candidate => {
+                const normalizedCandidate = normalizeSentencePrefix(candidate);
+                if (!normalizedCandidate || normalizedCandidate === currentPrefix) return;
+                if (!normalizedCandidate.startsWith(currentPrefix)) return;
+                if (countEnglishWords(candidate) < currentWords + 2) return;
+                if (!best || countEnglishWords(candidate) > countEnglishWords(best)) {
+                    best = candidate;
+                }
+            });
+
+            if (!best) return item;
+
+            return {
+                ...item,
+                en: best,
+                cn: autoTranslate(best),
+                difficulty: countEnglishWords(best) <= 5 ? 2 : 3
+            };
+        });
+
+        return data;
+    }
+
     function detectSourceParseHint(fileName, rawOcrText) {
         const name = String(fileName || '').toLowerCase();
         const raw = String(rawOcrText || '');
@@ -844,7 +893,10 @@ const ImageOCR = (() => {
                 const rawText = parseHint.forceSection === 'sentences'
                     ? buildSentenceExerciseRawTextFromOcr(result.data)
                     : baseRawText;
-                const parsedData = parseOcrTextToRecognizedData(rawText, aggregateData, parseHint);
+                const parsedData = expandSentenceItemsFromFullOcr(
+                    parseOcrTextToRecognizedData(rawText, aggregateData, parseHint),
+                    parseHint.fullOcrText
+                );
                 attachSourceReference(parsedData, sourceRef);
                 mergeRecognizedData(aggregateData, parsedData);
                 sourceIndex += 1;
