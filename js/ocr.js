@@ -117,17 +117,22 @@ const ImageOCR = (() => {
             compactRaw.includes(signal.replace(/\s+/g, ''))
         );
 
+        const hasSentenceSignal = hasSignal(sentenceSignals);
+        const hasPhraseSignal = hasSignal(phraseSignals);
+        const hasWordSignal = hasSignal(wordSignals);
+
         let forceSection = null;
-        if (hasSignal(sentenceSignals)) forceSection = 'sentences';
-        else if (hasSignal(phraseSignals)) forceSection = 'phrases';
-        else if (hasSignal(wordSignals)) forceSection = 'words';
+        if (hasSentenceSignal) forceSection = 'sentences';
+        else if (hasPhraseSignal) forceSection = 'phrases';
+        else if (hasWordSignal) forceSection = 'words';
 
         const numberedLines = raw
             .split(/\r?\n/)
             .map(line => line.trim())
             .filter(line => /^\s*\d{1,2}[.\s、:]/.test(line) && /[A-Za-z]{2,}/.test(line));
 
-        if (numberedLines.length >= 3) {
+        // Only let content heuristics decide when the file name / title signals are ambiguous.
+        if (!hasPhraseSignal && !hasWordSignal && numberedLines.length >= 3) {
             const sentenceStarters = /^(i|we|you|he|she|it|they|this|that|these|those|my|our|his|her|their|tom|love|a|an|the|in|hard)\b/i;
             const sentenceLikeCount = numberedLines.filter(line => {
                 const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
