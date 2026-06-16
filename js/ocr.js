@@ -173,6 +173,10 @@ const ImageOCR = (() => {
                 return sum + countEnglishWords(english);
             }, 0) / numberedLines.length
             : 0;
+        const phraseLikeCount = numberedLines.filter(line => {
+            const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
+            return isLikelyPhraseCandidate(english);
+        }).length;
 
         const strongSentenceContent = numberedLines.length >= 3 && (
             sentenceLikeCount >= Math.max(3, Math.ceil(numberedLines.length * 0.6)) ||
@@ -182,10 +186,32 @@ const ImageOCR = (() => {
                 return countEnglishWords(english) >= 5;
             }).length >= Math.max(3, numberedLines.length - 1)
         );
+        const strongPhraseContent = numberedLines.length >= 3 && (
+            phraseLikeCount >= Math.max(3, Math.ceil(numberedLines.length * 0.7)) &&
+            sentenceLikeCount <= Math.floor(numberedLines.length * 0.4)
+        );
+
+        // Strong numbered phrase content can override a misleading file name,
+        // but not an explicit sentence/word title recognized from the image itself.
+        if (
+            !hasSentenceTitleSignal &&
+            !hasWordTitleSignal &&
+            !hasSentenceSignal &&
+            !hasWordSignal &&
+            strongPhraseContent
+        ) {
+            forceSection = 'phrases';
+        }
 
         // Strong numbered sentence content can override a misleading file name,
-        // but not an explicit phrase/word title recognized from the image itself.
-        if (!hasPhraseTitleSignal && !hasWordTitleSignal && strongSentenceContent) {
+        // but not explicit phrase/word signals recognized from the image itself.
+        if (
+            !hasPhraseTitleSignal &&
+            !hasWordTitleSignal &&
+            !hasPhraseSignal &&
+            !hasWordSignal &&
+            strongSentenceContent
+        ) {
             forceSection = 'sentences';
         }
 
