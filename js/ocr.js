@@ -55,6 +55,26 @@ const ImageOCR = (() => {
         return data;
     }
 
+    function reclassifyForcedSectionItems(data, forceSection) {
+        if (!forceSection) return data;
+
+        const moved = [];
+        ['words', 'phrases', 'sentences'].forEach(type => {
+            data[type].forEach(item => moved.push({ ...item }));
+            if (type !== forceSection) data[type] = [];
+        });
+
+        const dedupe = new Set();
+        data[forceSection] = moved.filter(item => {
+            const key = String(item.en || '').trim().toLowerCase();
+            if (!key || dedupe.has(key)) return false;
+            dedupe.add(key);
+            return true;
+        });
+
+        return data;
+    }
+
     function mergeRecognizedData(target, incoming) {
         if (!target.unitName && incoming.unitName) target.unitName = incoming.unitName;
         if (!target.publisher && incoming.publisher) target.publisher = incoming.publisher;
@@ -136,7 +156,7 @@ const ImageOCR = (() => {
         smartParse(rawText, parseHint);
         const parsed = cloneRecognizedData(recognizedData);
         recognizedData = snapshot;
-        return parsed;
+        return reclassifyForcedSectionItems(parsed, parseHint.forceSection);
     }
 
     // Sort/filter mode for the saved units list (persisted)
@@ -449,6 +469,24 @@ const ImageOCR = (() => {
             .trim();
     }
 
+    function fixCommonOcrTextIssues(text, preferSentence = false) {
+        let fixed = String(text || '').trim();
+        if (!fixed) return fixed;
+
+        fixed = fixed
+            .replace(/^T(?=\s+(?:am|was|have|had|can|could|will|would|should|may|might|must|love|loved|like|liked|keep|kept|play|played|want|wanted|decide|decided|make|made|go|went|feel|felt)\b)/, 'I')
+            .replace(/^Alife\b/i, 'A life')
+            .replace(/^Ayear\b/i, 'A year');
+
+        if (preferSentence) {
+            fixed = fixed
+                .replace(/^l(?=\s+(?:am|was|have|had|can|could|will|would|should)\b)/, 'I')
+                .replace(/^1(?=\s+(?:am|was|have|had|can|could|will|would|should)\b)/, 'I');
+        }
+
+        return fixed;
+    }
+
     function buildUsableRawTextFromOcr(ocrData) {
         const rawText = String((ocrData && ocrData.text) || '').trim();
         const lines = Array.isArray(ocrData && ocrData.lines) ? ocrData.lines : [];
@@ -456,7 +494,7 @@ const ImageOCR = (() => {
 
         const kept = lines
             .map(line => {
-                const text = trimTrailingOcrNoise(line && line.text);
+                const text = fixCommonOcrTextIssues(trimTrailingOcrNoise(line && line.text), true);
                 const confidence = Number(line && (line.confidence ?? line.conf)) || 0;
                 return { text, confidence };
             })
@@ -1085,7 +1123,7 @@ const ImageOCR = (() => {
             group.assignedSection = section;
 
             group.items.forEach(item => {
-                addToSection(item, section);
+                addToSection(item, section, { forceSection: !!group.forcedSection });
             });
         });
 
@@ -1229,8 +1267,9 @@ const ImageOCR = (() => {
     }
 
     // Add item to appropriate section - respects assigned section
-    function addToSection(text, section) {
-        text = trimTrailingOcrNoise(text).trim();
+    function addToSection(text, section, options = {}) {
+        const forceSection = !!options.forceSection;
+        text = fixCommonOcrTextIssues(trimTrailingOcrNoise(text), section === 'sentences' || forceSection).trim();
         if (!text || text.length < 2) return;
 
         // Filter out obvious garbage
@@ -1250,7 +1289,7 @@ const ImageOCR = (() => {
         if (targetSection === 'words' && wordCount > 2 && !text.includes('...')) {
             targetSection = isSentence(text) ? 'sentences' : 'phrases';
         }
-        if (targetSection === 'sentences' && isLikelyPhraseCandidate(text)) {
+        if (!forceSection && targetSection === 'sentences' && isLikelyPhraseCandidate(text)) {
             targetSection = 'phrases';
         }
 
@@ -1287,7 +1326,7 @@ const ImageOCR = (() => {
             if (items.length > 0) {
                 items.forEach(item => {
                     const wc = item.split(/\s+/).length;
-                    if (forcedSection) addToSection(item, forcedSection);
+                    if (forcedSection) addToSection(item, forcedSection, { forceSection: true });
                     else if (wc === 1) addToSection(item, 'words');
                     else if (wc <= 5) addToSection(item, 'phrases');
                     else addToSection(item, 'sentences');
@@ -1298,7 +1337,7 @@ const ImageOCR = (() => {
                     const items = forcedSection === 'sentences' ? [english] : splitSemicolonPhraseCandidates(english);
                     items.forEach(item => {
                         const wc = item.split(/\s+/).length;
-                        addToSection(item, forcedSection || (wc >= 6 ? 'sentences' : 'phrases'));
+                        addToSection(item, forcedSection || (wc >= 6 ? 'sentences' : 'phrases'), { forceSection: !!forcedSection });
                     });
                 }
             }
