@@ -198,6 +198,8 @@ const ImageOCR = (() => {
             !hasWordTitleSignal &&
             !hasSentenceSignal &&
             !hasWordSignal &&
+            !hasSentenceFileNameSignal &&
+            !hasWordFileNameSignal &&
             strongPhraseContent
         ) {
             forceSection = 'phrases';
@@ -210,12 +212,14 @@ const ImageOCR = (() => {
             !hasWordTitleSignal &&
             !hasPhraseSignal &&
             !hasWordSignal &&
+            !hasPhraseFileNameSignal &&
+            !hasWordFileNameSignal &&
             strongSentenceContent
         ) {
             forceSection = 'sentences';
         }
 
-        if (!forceSection && numberedLines.length >= 3) {
+        if (!forceSection && numberedLines.length >= 3 && !hasPhraseFileNameSignal && !hasWordFileNameSignal) {
             const sentenceStarters = /^(i|we|you|he|she|it|they|this|that|these|those|my|our|his|her|their|tom|love|a|an|the|in|hard)\b/i;
             const fallbackSentenceLikeCount = numberedLines.filter(line => {
                 const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
@@ -246,9 +250,20 @@ const ImageOCR = (() => {
         return { forceSection };
     }
 
+    function createParseSeed(baseData) {
+        const seed = createEmptyRecognizedData();
+        if (!baseData) return seed;
+        seed.unitName = baseData.unitName || '';
+        seed.publisher = baseData.publisher || '';
+        seed.grade = baseData.grade || '';
+        seed.book = baseData.book || '';
+        seed.unitNo = baseData.unitNo || 0;
+        return seed;
+    }
+
     function parseOcrTextToRecognizedData(rawText, baseData, parseHint = {}) {
         const snapshot = recognizedData;
-        recognizedData = cloneRecognizedData(baseData || createEmptyRecognizedData());
+        recognizedData = createParseSeed(baseData);
         if (parseHint.forceSection === 'sentences') {
             parseForcedSentenceSection(rawText, parseHint);
         } else {
@@ -1391,7 +1406,9 @@ const ImageOCR = (() => {
             // Validate: must have at least one real English word (2+ alpha chars)
             if (text.length >= 2 && text.match(/[a-zA-Z]{2,}/)) {
                 // Remove non-English garbage but keep dots/ellipsis (for "see...as")
-                const cleaned = trimTrailingOcrNoise(text.replace(/[^a-zA-Z\s.,!?'"\-…]/g, '').trim());
+                const cleaned = trimTrailingCarryover(
+                    trimTrailingOcrNoise(text.replace(/[^a-zA-Z0-9\s.,!?'"\-…]/g, '').trim())
+                );
                 if (cleaned.length >= 2) {
                     splitSemicolonPhraseCandidates(cleaned).forEach(item => items.push(item));
                 }
@@ -1410,6 +1427,21 @@ const ImageOCR = (() => {
         if (/^(what|when|where|why|how|who|which)\b/i.test(cleaned) && wordCount >= 4) return false;
         if (/^(the|we|i|you|he|she|it|they|this|that|these|those)\b/i.test(cleaned) && wordCount >= 5) return false;
         return true;
+    }
+
+    function trimTrailingCarryover(text) {
+        let cleaned = String(text || '').trim();
+        if (!cleaned) return cleaned;
+
+        cleaned = cleaned
+            .replace(/\s+["“”']?\d{1,2}\s+\d{1,2}[.\s、:]+\s*[A-Za-z].*$/g, '')
+            .replace(/\s+\d+(?:[&:]\d+)+(?:\s+\d+)*\s*$/g, '')
+            .replace(/\s+\d{1,2}[.\s、:]+\s*[A-Za-z]{1,4}\s*$/g, '')
+            .replace(/\s+\d{1,2}\s+[A-Za-z]{1,4}\s*$/g, '')
+            .replace(/\s+\d{1,2}\s*$/g, '')
+            .trim();
+
+        return cleaned;
     }
 
     function splitSemicolonPhraseCandidates(text) {
@@ -1454,6 +1486,7 @@ const ImageOCR = (() => {
         // Remove trailing garbage
         english = english.replace(/[^\w\s.,!?'";\-]$/g, '').trim();
         english = trimTrailingOcrNoise(english);
+        english = trimTrailingCarryover(english);
 
         if (english.match(/[a-zA-Z]{2,}/) && countEnglishWords(english) >= 2 && !looksLikeOcrGarbage(english)) {
             return english;
@@ -1464,7 +1497,10 @@ const ImageOCR = (() => {
     // Add item to appropriate section - respects assigned section
     function addToSection(text, section, options = {}) {
         const forceSection = !!options.forceSection;
-        text = fixCommonOcrTextIssues(trimTrailingOcrNoise(text), section === 'sentences' || forceSection).trim();
+        text = fixCommonOcrTextIssues(
+            trimTrailingCarryover(trimTrailingOcrNoise(text)),
+            section === 'sentences' || forceSection
+        ).trim();
         if (!text || text.length < 2) return;
 
         // Filter out obvious garbage
