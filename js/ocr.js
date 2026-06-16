@@ -1235,6 +1235,8 @@ const ImageOCR = (() => {
     function showProofreadUI() {
         const resultsEl = document.getElementById('upload-results');
         resultsEl.style.display = 'block';
+        const referenceSrc = getReferenceImageSrc();
+        const referenceSummary = escapeHtml(document.getElementById('preview-summary')?.textContent || '原图参考 Original image reference');
 
         let html = '';
 
@@ -1272,6 +1274,17 @@ const ImageOCR = (() => {
             </button>
         </div>`;
 
+        if (referenceSrc) {
+            html += `<div class="proofread-reference-panel" id="proofread-reference-panel" style="display:none;">
+                <div class="proofread-reference-header">
+                    <strong>🖼️ 原图对照 Original Image</strong>
+                    <button type="button" class="btn-icon proofread-reference-close" onclick="ImageOCR.hideReferenceImagePanel()" title="关闭">✕</button>
+                </div>
+                <p class="proofread-reference-summary">${referenceSummary}</p>
+                <img id="proofread-reference-image" src="${escapeHtml(referenceSrc)}" alt="Original upload reference">
+            </div>`;
+        }
+
         document.getElementById('recognized-items').innerHTML = html;
 
         // Kick off remote translation for items the local dict couldn't cover.
@@ -1307,6 +1320,7 @@ const ImageOCR = (() => {
                 <div class="proofread-sentence-fields">
                     <textarea class="proofread-en proofread-textarea" rows="2"
                        placeholder="English sentence" data-type="${type}" data-idx="${idx}"
+                       onfocus="ImageOCR.onProofreadEnglishFocus(this)"
                        onchange="ImageOCR.onEnglishEdit(this)" onblur="ImageOCR.onEnglishEdit(this)"
                        oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'">${escapeHtml(item.en)}</textarea>
                     <textarea class="proofread-cn proofread-textarea" rows="1"
@@ -1320,6 +1334,7 @@ const ImageOCR = (() => {
             <span class="proofread-num">${idx + 1}.</span>
             <input type="text" class="proofread-en" value="${escapeHtml(item.en)}" 
                    placeholder="English" data-type="${type}" data-idx="${idx}"
+                   onfocus="ImageOCR.onProofreadEnglishFocus(this)"
                    onchange="ImageOCR.onEnglishEdit(this)" onblur="ImageOCR.onEnglishEdit(this)">
             <input type="text" class="proofread-cn" value="${escapeHtml(item.cn)}" 
                    placeholder="中文释义(可选)" data-type="${type}" data-idx="${idx}">
@@ -1370,20 +1385,22 @@ const ImageOCR = (() => {
 
     // Add a new empty item to a section
     function addItem(type) {
+        collectEdits(false);
         recognizedData[type].push({ en: '', cn: '', difficulty: type === 'sentences' ? 3 : (type === 'phrases' ? 2 : 1) });
-        refreshSection(type);
+        refreshSection(type, { preserveEmpty: true, focusNewItem: true });
     }
 
     // Remove an item from a section
     function removeItem(type, idx) {
-        collectEdits(); // Save current edits first
+        collectEdits(false); // Save current edits first
         recognizedData[type].splice(idx, 1);
         refreshSection(type);
     }
 
     // Refresh a single section's HTML
-    function refreshSection(type) {
-        collectEdits(); // Collect any edits user made in other sections
+    function refreshSection(type, options = {}) {
+        const { preserveEmpty = false, focusNewItem = false } = options;
+        collectEdits(!preserveEmpty); // Collect any edits user made in other sections
         const container = document.getElementById(`proofread-${type}`);
         if (!container) return;
         let html = '';
@@ -1397,10 +1414,17 @@ const ImageOCR = (() => {
         if (section) {
             section.querySelector('h4').textContent = `${titleMap[type]} (${recognizedData[type].length})`;
         }
+        if (focusNewItem && recognizedData[type].length > 0) {
+            const lastInput = container.querySelector(`.proofread-en[data-type="${type}"][data-idx="${recognizedData[type].length - 1}"]`);
+            if (lastInput) {
+                lastInput.focus();
+                if (typeof lastInput.select === 'function') lastInput.select();
+            }
+        }
     }
 
     // Collect all edits from the proofreading UI into recognizedData
-    function collectEdits() {
+    function collectEdits(removeEmpty = true) {
         // Unit name
         const nameInput = document.getElementById('proofread-unit-name');
         if (nameInput) {
@@ -1440,9 +1464,35 @@ const ImageOCR = (() => {
         });
 
         // Remove empty items
-        ['words', 'phrases', 'sentences'].forEach(type => {
-            recognizedData[type] = recognizedData[type].filter(item => item.en.length > 0);
-        });
+        if (removeEmpty) {
+            ['words', 'phrases', 'sentences'].forEach(type => {
+                recognizedData[type] = recognizedData[type].filter(item => item.en.length > 0);
+            });
+        }
+    }
+
+    function getReferenceImageSrc() {
+        const previewImage = document.getElementById('preview-image');
+        return previewImage && previewImage.getAttribute('src') ? previewImage.getAttribute('src') : '';
+    }
+
+    function onProofreadEnglishFocus(inputEl) {
+        const panel = document.getElementById('proofread-reference-panel');
+        const image = document.getElementById('proofread-reference-image');
+        const src = getReferenceImageSrc();
+        if (!panel || !image || !src) return;
+
+        image.src = src;
+        panel.style.display = 'block';
+        panel.classList.add('is-visible');
+        inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function hideReferenceImagePanel() {
+        const panel = document.getElementById('proofread-reference-panel');
+        if (!panel) return;
+        panel.style.display = 'none';
+        panel.classList.remove('is-visible');
     }
 
     // ========== SAVE / LOAD UNITS ==========
@@ -1995,6 +2045,7 @@ const ImageOCR = (() => {
     // Clear uploaded image and results
     function clearImage() {
         translationRequestSeq += 1;
+        hideReferenceImagePanel();
         document.getElementById('upload-preview').style.display = 'none';
         document.getElementById('upload-area').style.display = 'block';
         document.getElementById('upload-progress').style.display = 'none';
@@ -2028,6 +2079,8 @@ const ImageOCR = (() => {
         addItem,
         removeItem,
         onEnglishEdit,
+        onProofreadEnglishFocus,
+        hideReferenceImagePanel,
         saveUnit,
         practiceUnit,
         editUnit,

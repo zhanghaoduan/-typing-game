@@ -1258,6 +1258,62 @@ body {
     flex-wrap: wrap;
 }
 
+.proofread-reference-panel {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    width: min(420px, calc(100vw - 32px));
+    padding: 14px;
+    background: rgba(255, 255, 255, 0.98);
+    border: 1px solid #dbe4ff;
+    border-radius: 16px;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+    z-index: 1200;
+}
+
+.proofread-reference-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.proofread-reference-summary {
+    margin: 0 0 10px;
+    color: var(--text-light);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.proofread-reference-close {
+    border: 1px solid #d1d5db;
+    background: #fff;
+}
+
+.proofread-reference-close:hover {
+    background: #f3f4f6;
+}
+
+.proofread-reference-panel img {
+    display: block;
+    width: 100%;
+    max-height: 60vh;
+    object-fit: contain;
+    border-radius: 12px;
+    background: #f8fafc;
+}
+
+@media (max-width: 768px) {
+    .proofread-reference-panel {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        width: auto;
+        padding: 12px;
+    }
+}
+
 /* ============================================
    Saved Units Styles
    ============================================ */
