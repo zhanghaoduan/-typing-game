@@ -614,6 +614,41 @@ const ImageOCR = (() => {
         return rawText;
     }
 
+    function buildSentenceExerciseRawTextFromOcr(ocrData) {
+        const rawText = String((ocrData && ocrData.text) || '').trim();
+        const lines = Array.isArray(ocrData && ocrData.lines) ? ocrData.lines : [];
+        if (lines.length === 0) return rawText;
+
+        const kept = lines
+            .map(line => {
+                const text = fixCommonOcrTextIssues(trimTrailingOcrNoise(line && line.text), true);
+                const confidence = Number(line && (line.confidence ?? line.conf)) || 0;
+                return { text, confidence };
+            })
+            .filter(line => {
+                if (!line.text) return false;
+                const hasEnglish = /[A-Za-z]{2,}/.test(line.text);
+                const isHeader = /[\u4e00-\u9fff]/.test(line.text) || /^[一二三四五六七八九十][、.]/.test(line.text);
+                if (!hasEnglish && !isHeader) return false;
+                if (looksLikeOcrGarbage(line.text) && !/^\s*\d{1,2}[.\s、:]/.test(line.text)) return false;
+                if (line.confidence >= 12) return true;
+                if (/^\s*\d{1,2}[.\s、:]/.test(line.text)) return true;
+                if (countEnglishWords(line.text) >= 2) return true;
+                return false;
+            })
+            .map(line => line.text);
+
+        const filtered = kept.join('\n').trim();
+        if (!filtered) return rawText;
+
+        const filteredWords = countEnglishWords(filtered);
+        const rawWords = countEnglishWords(rawText);
+        if (filteredWords >= Math.max(6, Math.floor(rawWords * 0.5))) {
+            return filtered;
+        }
+        return rawText;
+    }
+
     // Process images/CSV files
     async function processUploadFiles(files) {
         const progressEl = document.getElementById('upload-progress');
@@ -668,8 +703,11 @@ const ImageOCR = (() => {
                     imageSrc: imageData
                 };
                 uploadedImageReferences.push(sourceRef);
-                const rawText = buildUsableRawTextFromOcr(result.data);
-                const parseHint = detectSourceParseHint(file.name, result.data.text || rawText);
+                const baseRawText = buildUsableRawTextFromOcr(result.data);
+                const parseHint = detectSourceParseHint(file.name, result.data.text || baseRawText);
+                const rawText = parseHint.forceSection === 'sentences'
+                    ? buildSentenceExerciseRawTextFromOcr(result.data)
+                    : baseRawText;
                 const parsedData = parseOcrTextToRecognizedData(rawText, aggregateData, parseHint);
                 attachSourceReference(parsedData, sourceRef);
                 mergeRecognizedData(aggregateData, parsedData);
