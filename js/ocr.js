@@ -11,6 +11,7 @@
 const ImageOCR = (() => {
     let recognizedData = createEmptyRecognizedData();
     let previewObjectUrl = null;
+    let translationRequestSeq = 0;
 
     function createEmptyRecognizedData(raw = '') {
         return {
@@ -251,6 +252,73 @@ const ImageOCR = (() => {
         statusEl.textContent = label;
     }
 
+    function normalizeOcrLineText(text) {
+        return String(text || '')
+            .replace(/\s+/g, ' ')
+            .replace(/[|¦]/g, 'I')
+            .trim();
+    }
+
+    function looksLikeOcrGarbage(text) {
+        const normalized = normalizeOcrLineText(text);
+        if (!normalized) return true;
+
+        const tokens = normalized.match(/[A-Za-z]+(?:['-][A-Za-z]+)*/g) || [];
+        if (tokens.length === 0) return true;
+
+        const alphaChars = (normalized.match(/[A-Za-z]/g) || []).length;
+        const alphaRatio = alphaChars / Math.max(normalized.length, 1);
+        if (alphaRatio < 0.45) return true;
+
+        const singleLetterCount = tokens.filter(t => t.length === 1).length;
+        if (singleLetterCount >= 2) return true;
+
+        const allCapsLong = tokens.filter(t => t.length >= 3 && t === t.toUpperCase()).length;
+        if (allCapsLong >= 2) return true;
+
+        const noVowelTokens = tokens.filter(t => {
+            if (t.length < 4) return false;
+            if (/[aeiouy]/i.test(t)) return false;
+            return !/^(rhythms?|myths?|lymph|glyph|lynx)$/i.test(t);
+        }).length;
+        if (noVowelTokens >= 2 && noVowelTokens >= Math.ceil(tokens.length * 0.5)) return true;
+
+        return false;
+    }
+
+    function buildUsableRawTextFromOcr(ocrData) {
+        const rawText = String((ocrData && ocrData.text) || '').trim();
+        const lines = Array.isArray(ocrData && ocrData.lines) ? ocrData.lines : [];
+        if (lines.length === 0) return rawText;
+
+        const kept = lines
+            .map(line => {
+                const text = normalizeOcrLineText(line && line.text);
+                const confidence = Number(line && (line.confidence ?? line.conf)) || 0;
+                return { text, confidence };
+            })
+            .filter(line => {
+                if (!line.text) return false;
+                if (!/[A-Za-z]{2,}/.test(line.text)) return false;
+                if (looksLikeOcrGarbage(line.text)) return false;
+                if (line.confidence >= 45) return true;
+                if (line.confidence >= 30 && countEnglishWords(line.text) >= 3) return true;
+                if (/^\s*\d{1,2}[.\s、:]/.test(line.text) && line.confidence >= 20) return true;
+                return false;
+            })
+            .map(line => line.text);
+
+        const filtered = kept.join('\n').trim();
+        if (!filtered) return rawText;
+
+        const filteredWords = countEnglishWords(filtered);
+        const rawWords = countEnglishWords(rawText);
+        if (filteredWords >= 8 || filteredWords >= Math.max(4, Math.floor(rawWords * 0.35))) {
+            return filtered;
+        }
+        return rawText;
+    }
+
     // Process images/CSV files
     async function processUploadFiles(files) {
         const progressEl = document.getElementById('upload-progress');
@@ -262,6 +330,7 @@ const ImageOCR = (() => {
         const rawParts = [];
         const csvImports = [];
 
+        translationRequestSeq += 1;
         progressEl.style.display = 'block';
         document.getElementById('upload-results').style.display = 'none';
         recognizedData = createEmptyRecognizedData();
@@ -296,7 +365,7 @@ const ImageOCR = (() => {
                     }
                 });
 
-                rawParts.push(result.data.text || '');
+                rawParts.push(buildUsableRawTextFromOcr(result.data));
                 sourceIndex += 1;
             }
 
@@ -860,6 +929,7 @@ const ImageOCR = (() => {
 
     // Detect if a line is a header/garbage (Chinese section header or OCR noise)
     function isHeaderOrGarbage(line) {
+        if (looksLikeOcrGarbage(line)) return true;
         // Contains Chinese section markers
         if (/[一二三四五六七八九十][、.,\s]/.test(line)) return true;
         if (/[Ⅰ-Ⅹ][、.,\s]/.test(line)) return true;
@@ -960,7 +1030,7 @@ const ImageOCR = (() => {
         // Remove trailing garbage
         english = english.replace(/[^\w\s.,!?'";\-]$/g, '').trim();
 
-        if (english.match(/[a-zA-Z]{2,}/) && countEnglishWords(english) >= 2) {
+        if (english.match(/[a-zA-Z]{2,}/) && countEnglishWords(english) >= 2 && !looksLikeOcrGarbage(english)) {
             return english;
         }
         return null;
@@ -974,6 +1044,7 @@ const ImageOCR = (() => {
         // Filter out obvious garbage
         if (/^[—\-\s.%]+$/.test(text)) return;
         if (!text.match(/[a-zA-Z]{2,}/)) return;
+        if (looksLikeOcrGarbage(text)) return;
 
         let targetSection = section || 'words';
         const wordCount = text.split(/\s+/).length;
@@ -1054,6 +1125,7 @@ const ImageOCR = (() => {
     // Async: ask the backend to translate ALL items, and override the local-dict
     // placeholders with the richer ECDICT (POS-tagged) results when available.
     async function fetchRemoteTranslations() {
+        const requestId = ++translationRequestSeq;
         const all = [];
         ['words', 'phrases', 'sentences'].forEach(type => {
             recognizedData[type].forEach(item => {
@@ -1062,14 +1134,27 @@ const ImageOCR = (() => {
         });
         if (all.length === 0) return;
         try {
-            const res = await fetch('/api/translate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ texts: all })
-            });
-            if (!res.ok) return;
-            const data = await res.json();
-            const map = (data && data.translations) || {};
+            const uniqueTexts = [...new Set(all)];
+            const map = {};
+            const batchSize = 80;
+
+            for (let i = 0; i < uniqueTexts.length; i += batchSize) {
+                const batch = uniqueTexts.slice(i, i + batchSize);
+                const res = await fetch('/api/translate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ texts: batch })
+                });
+                if (!res.ok) {
+                    console.warn('[OCR] remote translate batch failed:', res.status);
+                    continue;
+                }
+                const data = await res.json();
+                Object.assign(map, (data && data.translations) || {});
+            }
+
+            if (requestId !== translationRequestSeq) return;
+
             ['words', 'phrases', 'sentences'].forEach(type => {
                 recognizedData[type].forEach((item, idx) => {
                     if (item.en && map[item.en] && map[item.en] !== item.cn) {
@@ -1855,6 +1940,7 @@ const ImageOCR = (() => {
 
     // Clear uploaded image and results
     function clearImage() {
+        translationRequestSeq += 1;
         document.getElementById('upload-preview').style.display = 'none';
         document.getElementById('upload-area').style.display = 'block';
         document.getElementById('upload-progress').style.display = 'none';
