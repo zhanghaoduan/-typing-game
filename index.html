@@ -185,18 +185,30 @@
             <hr class="upload-divider">
 
             <!-- Upload Area -->
-            <h3>📤 上传新图片 Upload New Image</h3>
+            <h3>📤 上传图片 / 文件夹 / CSV Upload Images / Folder / CSV</h3>
             <div class="upload-area" id="upload-area">
                 <div class="upload-dropzone" id="upload-dropzone">
                     <div class="dropzone-icon">📁</div>
-                    <p>点击选择图片或拖拽到此处</p>
-                    <p>Click to select or drag image here</p>
-                    <p class="upload-hint">支持 JPG, PNG, BMP 格式</p>
-                    <input type="file" id="upload-input" accept="image/*" style="display:none;">
+                    <p>点击选择多张图片 / CSV，或直接拖拽图片、CSV、整个文件夹到此处</p>
+                    <p>Click to select multiple images / CSV, or drag images, CSV, or a whole folder here</p>
+                    <p class="upload-hint">支持 JPG, PNG, BMP, CSV；可一次识别多张图片并合并结果</p>
+                    <div class="upload-picker-actions">
+                        <button type="button" class="btn btn-small btn-outline" id="choose-files-btn">选择图片/CSV Select Files</button>
+                        <button type="button" class="btn btn-small btn-outline" id="choose-folder-btn">选择文件夹 Select Folder</button>
+                    </div>
+                    <input type="file" id="upload-input" accept="image/*,.csv,text/csv" multiple style="display:none;">
+                    <input type="file" id="upload-directory-input" accept="image/*,.csv,text/csv" webkitdirectory multiple style="display:none;">
                 </div>
             </div>
             <div class="upload-preview" id="upload-preview" style="display:none;">
-                <img id="preview-image" src="" alt="Preview">
+                <div class="upload-preview-card">
+                    <img id="preview-image" src="" alt="Preview">
+                    <div class="upload-preview-text">
+                        <h4 id="preview-title">已选择文件 Selected Files</h4>
+                        <p id="preview-summary"></p>
+                        <div class="upload-file-list" id="preview-file-list"></div>
+                    </div>
+                </div>
                 <button class="btn btn-small btn-outline" onclick="ImageOCR.clearImage()">🗑️ 清除重新上传 Clear</button>
             </div>
             <div class="upload-progress" id="upload-progress" style="display:none;">

@@ -9,17 +9,24 @@
    ============================================ */
 
 const ImageOCR = (() => {
-    let recognizedData = {
-        unitName: '',
-        publisher: '',
-        grade: '',
-        book: '',
-        unitNo: 0,
-        words: [],
-        phrases: [],
-        sentences: [],
-        raw: ''
-    };
+    let recognizedData = createEmptyRecognizedData();
+    let previewObjectUrl = null;
+
+    function createEmptyRecognizedData(raw = '') {
+        return {
+            unitName: '',
+            publisher: '',
+            grade: '',
+            book: '',
+            unitNo: 0,
+            words: [],
+            phrases: [],
+            sentences: [],
+            raw,
+            _editingIdx: null,
+            _editingServerId: null
+        };
+    }
 
     // Sort/filter mode for the saved units list (persisted)
     const SORT_KEY = 'savedUnitsSortMode';
@@ -39,16 +46,36 @@ const ImageOCR = (() => {
     function init() {
         const dropzone = document.getElementById('upload-dropzone');
         const fileInput = document.getElementById('upload-input');
+        const directoryInput = document.getElementById('upload-directory-input');
+        const chooseFilesBtn = document.getElementById('choose-files-btn');
+        const chooseFolderBtn = document.getElementById('choose-folder-btn');
 
-        if (!dropzone || !fileInput) return;
+        if (!dropzone || !fileInput || !directoryInput) return;
 
         // Click to upload
-        dropzone.addEventListener('click', () => fileInput.click());
+        dropzone.addEventListener('click', (e) => {
+            if (e.target.closest('button')) return;
+            fileInput.click();
+        });
+        chooseFilesBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            fileInput.click();
+        });
+        chooseFolderBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            directoryInput.click();
+        });
 
         // File selected
         fileInput.addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
-                handleFile(e.target.files[0]);
+                handleFiles(Array.from(e.target.files));
+            }
+        });
+
+        directoryInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFiles(Array.from(e.target.files));
             }
         });
 
@@ -62,11 +89,13 @@ const ImageOCR = (() => {
             dropzone.classList.remove('dragover');
         });
 
-        dropzone.addEventListener('drop', (e) => {
+        dropzone.addEventListener('drop', async (e) => {
             e.preventDefault();
             dropzone.classList.remove('dragover');
-            if (e.dataTransfer.files.length > 0) {
-                handleFile(e.dataTransfer.files[0]);
+
+            const files = await extractDroppedFiles(e.dataTransfer);
+            if (files.length > 0) {
+                handleFiles(files);
             }
         });
 
@@ -80,57 +109,250 @@ const ImageOCR = (() => {
         renderSavedUnits();
     }
 
-    // Handle uploaded file
-    function handleFile(file) {
-        if (!file.type.startsWith('image/')) {
-            alert('请上传图片文件 Please upload an image file');
+    async function extractDroppedFiles(dataTransfer) {
+        const items = Array.from(dataTransfer?.items || []);
+        if (items.length === 0) {
+            return Array.from(dataTransfer?.files || []);
+        }
+
+        const nestedFiles = await Promise.all(items.map(async (item) => {
+            const entry = item.webkitGetAsEntry?.();
+            if (entry) {
+                return readEntryFiles(entry);
+            }
+
+            const file = item.getAsFile?.();
+            return file ? [file] : [];
+        }));
+
+        return nestedFiles.flat();
+    }
+
+    function readEntryFiles(entry) {
+        return new Promise((resolve) => {
+            if (entry.isFile) {
+                entry.file((file) => resolve([file]), () => resolve([]));
+                return;
+            }
+
+            if (!entry.isDirectory) {
+                resolve([]);
+                return;
+            }
+
+            const reader = entry.createReader();
+            const entries = [];
+
+            const readBatch = () => {
+                reader.readEntries(async (results) => {
+                    if (!results.length) {
+                        const nested = await Promise.all(entries.map(child => readEntryFiles(child)));
+                        resolve(nested.flat());
+                        return;
+                    }
+
+                    entries.push(...results);
+                    readBatch();
+                }, () => resolve([]));
+            };
+
+            readBatch();
+        });
+    }
+
+    function filterSupportedFiles(files) {
+        const seen = new Set();
+        return files.filter(file => {
+            if (!file) return false;
+            const isImage = file.type.startsWith('image/');
+            const isCsv = file.type === 'text/csv' || /\.csv$/i.test(file.name);
+            if (!isImage && !isCsv) return false;
+
+            const key = [file.name, file.size, file.lastModified].join('|');
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }
+
+    // Handle uploaded files
+    async function handleFiles(files) {
+        const supportedFiles = filterSupportedFiles(files);
+        if (supportedFiles.length === 0) {
+            alert('请上传图片、CSV 文件，或拖拽包含这些文件的文件夹\nPlease upload images, CSV files, or a folder containing them');
             return;
         }
 
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            document.getElementById('preview-image').src = e.target.result;
-            document.getElementById('upload-preview').style.display = 'block';
-            document.getElementById('upload-area').style.display = 'none';
-            performOCR(e.target.result);
-        };
-        reader.readAsDataURL(file);
+        showSelectionPreview(supportedFiles);
+        await processUploadFiles(supportedFiles);
     }
 
-    // Perform OCR using Tesseract.js
-    async function performOCR(imageData) {
+    function showSelectionPreview(files) {
+        const previewImage = document.getElementById('preview-image');
+        const summaryEl = document.getElementById('preview-summary');
+        const fileListEl = document.getElementById('preview-file-list');
+        const images = files.filter(file => file.type.startsWith('image/'));
+        const csvs = files.filter(file => file.type === 'text/csv' || /\.csv$/i.test(file.name));
+
+        if (previewObjectUrl) {
+            URL.revokeObjectURL(previewObjectUrl);
+            previewObjectUrl = null;
+        }
+
+        if (images.length > 0) {
+            previewObjectUrl = URL.createObjectURL(images[0]);
+            previewImage.src = previewObjectUrl;
+            previewImage.style.display = 'block';
+        } else {
+            previewImage.removeAttribute('src');
+            previewImage.style.display = 'none';
+        }
+
+        summaryEl.textContent = `共 ${files.length} 个文件：${images.length} 张图片，${csvs.length} 个 CSV。系统会合并图片识别结果，并从 CSV 中自动提取单词列。`;
+        fileListEl.innerHTML = files.slice(0, 10).map(file => {
+            const icon = file.type.startsWith('image/') ? '🖼️' : '📄';
+            return `<span class="upload-file-pill">${icon} ${escapeHtml(file.webkitRelativePath || file.name)}</span>`;
+        }).join('');
+
+        if (files.length > 10) {
+            fileListEl.innerHTML += `<span class="upload-file-pill">+${files.length - 10} more</span>`;
+        }
+
+        document.getElementById('upload-preview').style.display = 'block';
+        document.getElementById('upload-area').style.display = 'none';
+    }
+
+    function readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function readFileAsText(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result || '');
+            reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
+            reader.readAsText(file, 'utf-8');
+        });
+    }
+
+    function buildSourceProgressLabel(kind, current, total, name) {
+        return `${kind} ${current}/${total}: ${name}`;
+    }
+
+    function updateOverallProgress(progressFill, statusEl, sourceIndex, totalSources, innerProgress, label) {
+        const ratio = totalSources > 0 ? ((sourceIndex + innerProgress) / totalSources) : innerProgress;
+        const percent = Math.max(5, Math.min(100, Math.round(ratio * 100)));
+        progressFill.style.width = `${percent}%`;
+        statusEl.textContent = label;
+    }
+
+    // Process images/CSV files
+    async function processUploadFiles(files) {
         const progressEl = document.getElementById('upload-progress');
         const progressFill = document.getElementById('ocr-progress-fill');
         const statusEl = document.getElementById('ocr-status');
+        const imageFiles = files.filter(file => file.type.startsWith('image/'));
+        const csvFiles = files.filter(file => file.type === 'text/csv' || /\.csv$/i.test(file.name));
+        const totalSources = imageFiles.length + csvFiles.length;
+        const rawParts = [];
+        const csvImports = [];
 
         progressEl.style.display = 'block';
         document.getElementById('upload-results').style.display = 'none';
+        recognizedData = createEmptyRecognizedData();
 
         try {
-            statusEl.textContent = '正在加载识别引擎... Loading OCR engine...';
-            progressFill.style.width = '10%';
+            let sourceIndex = 0;
 
-            // Use English recognition - Chinese headers detected by regex patterns
-            const result = await Tesseract.recognize(imageData, 'eng', {
-                logger: (m) => {
-                    if (m.status === 'recognizing text') {
-                        const pct = Math.round(m.progress * 100);
-                        progressFill.style.width = (10 + pct * 0.8) + '%';
-                        statusEl.textContent = `识别中... Recognizing: ${pct}%`;
+            for (let i = 0; i < imageFiles.length; i++) {
+                const file = imageFiles[i];
+                const imageData = await readFileAsDataUrl(file);
+                updateOverallProgress(
+                    progressFill,
+                    statusEl,
+                    sourceIndex,
+                    totalSources,
+                    0.05,
+                    `正在识别图片 ${i + 1}/${imageFiles.length}... Recognizing image ${i + 1}/${imageFiles.length}...`
+                );
+
+                const result = await Tesseract.recognize(imageData, 'eng', {
+                    logger: (m) => {
+                        if (m.status === 'recognizing text') {
+                            updateOverallProgress(
+                                progressFill,
+                                statusEl,
+                                sourceIndex,
+                                totalSources,
+                                0.1 + m.progress * 0.9,
+                                `${buildSourceProgressLabel('图片 Image', i + 1, imageFiles.length, file.name)} ${Math.round(m.progress * 100)}%`
+                            );
+                        }
                     }
+                });
+
+                rawParts.push(result.data.text || '');
+                sourceIndex += 1;
+            }
+
+            for (let i = 0; i < csvFiles.length; i++) {
+                const file = csvFiles[i];
+                updateOverallProgress(
+                    progressFill,
+                    statusEl,
+                    sourceIndex,
+                    totalSources,
+                    0.2,
+                    `正在导入 CSV ${i + 1}/${csvFiles.length}... Importing CSV ${i + 1}/${csvFiles.length}...`
+                );
+
+                const csvText = await readFileAsText(file);
+                csvImports.push(parseCsvWords(csvText, file.name));
+                sourceIndex += 1;
+                updateOverallProgress(
+                    progressFill,
+                    statusEl,
+                    sourceIndex - 1,
+                    totalSources,
+                    1,
+                    `${buildSourceProgressLabel('CSV', i + 1, csvFiles.length, file.name)} imported`
+                );
+            }
+
+            if (rawParts.length > 0) {
+                const rawText = rawParts.join('\n');
+                console.log('[OCR] Raw text:', rawText);
+                smartParse(rawText);
+            } else {
+                recognizedData = createEmptyRecognizedData('');
+            }
+
+            csvImports.forEach((csvData) => {
+                csvData.words.forEach(word => addToSection(word, 'words'));
+                if (!recognizedData.unitName && csvData.unitName) {
+                    recognizedData.unitName = csvData.unitName;
                 }
             });
 
-            progressFill.style.width = '100%';
-            statusEl.textContent = '识别完成！Recognition complete!';
+            if (!recognizedData.unitName) {
+                recognizedData.unitName = deriveUnitNameFromFiles(files);
+            }
 
-            const rawText = result.data.text;
-            console.log('[OCR] Raw text:', rawText);
+            autoTranslateAll();
 
-            // Smart structured parsing
-            smartParse(rawText);
+            const totalItems = recognizedData.words.length + recognizedData.phrases.length + recognizedData.sentences.length;
+            if (totalItems === 0) {
+                throw new Error('未识别到可导入内容。图片请换更清晰的截图；CSV 请确认包含英文单词列。');
+            }
 
             // Show proofreading UI after short delay
+            progressFill.style.width = '100%';
+            statusEl.textContent = '识别完成！Recognition complete!';
             setTimeout(() => {
                 progressEl.style.display = 'none';
                 showProofreadUI();
@@ -320,16 +542,180 @@ const ImageOCR = (() => {
         return '';
     }
 
+    function stripFileExtension(fileName = '') {
+        return fileName.replace(/\.[^.]+$/, '').trim();
+    }
+
+    function deriveUnitNameFromFiles(files) {
+        const firstImage = files.find(file => file.type.startsWith('image/'));
+        const firstCsv = files.find(file => file.type === 'text/csv' || /\.csv$/i.test(file.name));
+        const picked = firstImage || firstCsv || files[0];
+        return picked ? stripFileExtension(picked.name) : '';
+    }
+
+    function parseCsvRows(text) {
+        const rows = [];
+        let row = [];
+        let cell = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < text.length; i++) {
+            const ch = text[i];
+            const next = text[i + 1];
+
+            if (ch === '"') {
+                if (inQuotes && next === '"') {
+                    cell += '"';
+                    i += 1;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+                continue;
+            }
+
+            if (ch === ',' && !inQuotes) {
+                row.push(cell);
+                cell = '';
+                continue;
+            }
+
+            if ((ch === '\n' || ch === '\r') && !inQuotes) {
+                if (ch === '\r' && next === '\n') i += 1;
+                row.push(cell);
+                rows.push(row);
+                row = [];
+                cell = '';
+                continue;
+            }
+
+            cell += ch;
+        }
+
+        if (cell.length > 0 || row.length > 0) {
+            row.push(cell);
+            rows.push(row);
+        }
+
+        return rows
+            .map(r => r.map(col => (col || '').trim()))
+            .filter(r => r.some(col => col.length > 0));
+    }
+
+    function normalizeCsvHeader(text) {
+        return text.toLowerCase().replace(/[\s_-]+/g, '');
+    }
+
+    function countEnglishWords(text) {
+        return (text.match(/[A-Za-z]+(?:['-][A-Za-z]+)*/g) || []).length;
+    }
+
+    function looksLikeEnglishText(text) {
+        return /[A-Za-z]{2,}/.test(text) && !/[\u4e00-\u9fff]/.test(text);
+    }
+
+    function normalizeWordCandidate(text) {
+        return text.replace(/^[^A-Za-z]+|[^A-Za-z'-]+$/g, '').replace(/\s+/g, ' ').trim();
+    }
+
+    function isLikelyWordEntry(text) {
+        if (!text || !looksLikeEnglishText(text)) return false;
+        if (/[;:!?]/.test(text)) return false;
+        return /^[A-Za-z]+(?:['-][A-Za-z]+)?$/.test(text.trim());
+    }
+
+    function detectCsvWordColumn(rows) {
+        const firstRow = rows[0] || [];
+        const headerBoost = /(word|words|singleword|english|vocabulary|vocab|term|spelling|单词|词汇|英文)/i;
+        const wrongHeader = /(phrase|phrases|sentence|sentences|translation|meaning|example|中文|释义|句子|短语|词组|例句)/i;
+        const hasHeader = firstRow.some(col => headerBoost.test(col) || wrongHeader.test(col));
+        const dataRows = hasHeader ? rows.slice(1) : rows;
+        const maxCols = rows.reduce((max, row) => Math.max(max, row.length), 0);
+
+        let bestIndex = -1;
+        let bestScore = -Infinity;
+
+        for (let colIdx = 0; colIdx < maxCols; colIdx++) {
+            const header = normalizeCsvHeader(firstRow[colIdx] || '');
+            let score = 0;
+            let singleWordCount = 0;
+            let englishCount = 0;
+
+            if (hasHeader) {
+                if (headerBoost.test(header)) score += 18;
+                if (wrongHeader.test(header)) score -= 18;
+            }
+
+            dataRows.forEach(row => {
+                const value = normalizeWordCandidate(row[colIdx] || '');
+                if (!value) return;
+
+                if (isLikelyWordEntry(value)) {
+                    singleWordCount += 1;
+                    englishCount += 1;
+                    score += 6;
+                } else if (looksLikeEnglishText(value)) {
+                    englishCount += 1;
+                    score += 1;
+                    if (countEnglishWords(value) > 1) score -= 3;
+                } else {
+                    score -= 2;
+                }
+            });
+
+            if (singleWordCount === 0 && englishCount === 0) continue;
+
+            score += singleWordCount * 2;
+            if (score > bestScore) {
+                bestScore = score;
+                bestIndex = colIdx;
+            }
+        }
+
+        return bestScore >= 6 ? { index: bestIndex, hasHeader } : { index: -1, hasHeader };
+    }
+
+    function parseCsvWords(text, fileName) {
+        const rows = parseCsvRows(text);
+        if (rows.length === 0) {
+            return { unitName: stripFileExtension(fileName), words: [] };
+        }
+
+        const { index, hasHeader } = detectCsvWordColumn(rows);
+        if (index < 0) {
+            return { unitName: stripFileExtension(fileName), words: [] };
+        }
+
+        const dataRows = hasHeader ? rows.slice(1) : rows;
+        const dedupe = new Set();
+        const words = [];
+
+        dataRows.forEach(row => {
+            const normalized = normalizeWordCandidate(row[index] || '');
+            if (!isLikelyWordEntry(normalized)) return;
+
+            const key = normalized.toLowerCase();
+            if (dedupe.has(key)) return;
+            dedupe.add(key);
+            words.push(normalized);
+        });
+
+        return {
+            unitName: stripFileExtension(fileName),
+            words
+        };
+    }
+
     // ========== SMART STRUCTURED PARSING ==========
     function smartParse(rawText) {
-        recognizedData = {
-            unitName: '',
+        const prevMeta = {
             publisher: recognizedData.publisher || '',
             grade: recognizedData.grade || '',
-            book: recognizedData.book || '',
-            unitNo: 0,
-            words: [], phrases: [], sentences: [], raw: rawText
+            book: recognizedData.book || ''
         };
+        recognizedData = createEmptyRecognizedData(rawText);
+        recognizedData.publisher = prevMeta.publisher;
+        recognizedData.grade = prevMeta.grade;
+        recognizedData.book = prevMeta.book;
 
         const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
@@ -409,11 +795,11 @@ const ImageOCR = (() => {
             } else {
                 // Line has English but no numbered items - might be a sentence without number
                 const english = extractEnglish(line);
-                if (english && english.split(/\s+/).length >= 5) {
+                if (english) {
                     if (!currentGroup) {
                         currentGroup = { items: [], avgWordCount: 0 };
                     }
-                    currentGroup.items.push(english);
+                    splitSemicolonPhraseCandidates(english).forEach(item => currentGroup.items.push(item));
                 }
             }
         }
@@ -526,12 +912,41 @@ const ImageOCR = (() => {
                 // Remove non-English garbage but keep dots/ellipsis (for "see...as")
                 const cleaned = text.replace(/[^a-zA-Z\s.,!?'"\-…]/g, '').trim();
                 if (cleaned.length >= 2) {
-                    items.push(cleaned);
+                    splitSemicolonPhraseCandidates(cleaned).forEach(item => items.push(item));
                 }
             }
         }
 
         return items;
+    }
+
+    function isLikelyPhraseCandidate(text) {
+        const cleaned = text.trim();
+        if (!cleaned) return false;
+        const wordCount = countEnglishWords(cleaned);
+        if (wordCount === 0 || wordCount > 6) return false;
+        if (/[.!?]$/.test(cleaned)) return false;
+        if (/^(what|when|where|why|how|who|which)\b/i.test(cleaned) && wordCount >= 4) return false;
+        if (/^(the|we|i|you|he|she|it|they|this|that|these|those)\b/i.test(cleaned) && wordCount >= 5) return false;
+        return true;
+    }
+
+    function splitSemicolonPhraseCandidates(text) {
+        const normalized = text.replace(/[；]/g, ';').replace(/\s*;\s*/g, ';').trim();
+        if (!normalized.includes(';')) {
+            return [text.trim()];
+        }
+
+        const parts = normalized
+            .split(';')
+            .map(part => part.trim())
+            .filter(Boolean);
+
+        if (parts.length >= 2 && parts.every(isLikelyPhraseCandidate)) {
+            return parts;
+        }
+
+        return [text.trim()];
     }
 
     // Extract English text from a mixed line - improved
@@ -545,7 +960,7 @@ const ImageOCR = (() => {
         // Remove trailing garbage
         english = english.replace(/[^\w\s.,!?'";\-]$/g, '').trim();
 
-        if (english.match(/[a-zA-Z]{2,}/)) {
+        if (english.match(/[a-zA-Z]{2,}/) && countEnglishWords(english) >= 2) {
             return english;
         }
         return null;
@@ -563,10 +978,17 @@ const ImageOCR = (() => {
         let targetSection = section || 'words';
         const wordCount = text.split(/\s+/).length;
 
+        if (splitSemicolonPhraseCandidates(text).length > 1) {
+            targetSection = 'phrases';
+        }
+
         // If explicitly assigned to a section, trust it
         // But do a sanity check for obvious mismatches
         if (targetSection === 'words' && wordCount > 2 && !text.includes('...')) {
             targetSection = isSentence(text) ? 'sentences' : 'phrases';
+        }
+        if (targetSection === 'sentences' && isLikelyPhraseCandidate(text)) {
+            targetSection = 'phrases';
         }
 
         const cn = autoTranslate(text);
@@ -585,6 +1007,7 @@ const ImageOCR = (() => {
 
     // Determine if text is a sentence (vs phrase)
     function isSentence(text) {
+        if (splitSemicolonPhraseCandidates(text).length > 1) return false;
         const wordCount = text.split(/\s+/).length;
         if (wordCount >= 6) return true;
         if (/^[A-Z]/.test(text) && /[.!?]$/.test(text)) return true;
@@ -606,8 +1029,12 @@ const ImageOCR = (() => {
                 });
             } else {
                 const english = extractEnglish(line);
-                if (english && english.split(/\s+/).length >= 6) {
-                    addToSection(english, 'sentences');
+                if (english) {
+                    const items = splitSemicolonPhraseCandidates(english);
+                    items.forEach(item => {
+                        const wc = item.split(/\s+/).length;
+                        addToSection(item, wc >= 6 ? 'sentences' : 'phrases');
+                    });
                 }
             }
         });
@@ -1433,8 +1860,17 @@ const ImageOCR = (() => {
         document.getElementById('upload-progress').style.display = 'none';
         document.getElementById('upload-results').style.display = 'none';
         document.getElementById('upload-input').value = '';
+        const directoryInput = document.getElementById('upload-directory-input');
+        if (directoryInput) directoryInput.value = '';
+        if (previewObjectUrl) {
+            URL.revokeObjectURL(previewObjectUrl);
+            previewObjectUrl = null;
+        }
         document.getElementById('preview-image').src = '';
-        recognizedData = { unitName: '', publisher: '', grade: '', book: '', unitNo: 0, words: [], phrases: [], sentences: [], raw: '' };
+        document.getElementById('preview-image').style.display = 'none';
+        document.getElementById('preview-summary').textContent = '';
+        document.getElementById('preview-file-list').innerHTML = '';
+        recognizedData = createEmptyRecognizedData();
     }
 
     // Utility: escape HTML
