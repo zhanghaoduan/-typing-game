@@ -1505,6 +1505,19 @@ const ImageOCR = (() => {
         return null;
     }
 
+    function classifyExtractedItems(items, fallbackSection = null) {
+        const list = (items || []).map(item => String(item || '').trim()).filter(Boolean);
+        if (list.length === 0) return fallbackSection || 'sentences';
+        const avgWords = list.reduce((sum, item) => sum + countEnglishWords(item), 0) / list.length;
+        const sentenceLikeCount = list.filter(item => isSentence(item) || countEnglishWords(item) >= 6).length;
+        const phraseLikeCount = list.filter(item => isLikelyPhraseCandidate(item)).length;
+
+        if (avgWords <= 1.4) return 'words';
+        if (sentenceLikeCount >= Math.max(1, Math.ceil(list.length * 0.5))) return 'sentences';
+        if (phraseLikeCount >= Math.max(1, Math.ceil(list.length * 0.6)) || avgWords <= 4.5) return 'phrases';
+        return fallbackSection || 'sentences';
+    }
+
     function parseMixedSectionExercise(rawText, parseHint = {}) {
         const prevMeta = {
             publisher: recognizedData.publisher || '',
@@ -1550,16 +1563,20 @@ const ImageOCR = (() => {
                 continue;
             }
 
+            const numberedItems = extractItems(line);
+            if (numberedItems.length > 1) {
+                flushSentence();
+                const inferredSection = classifyExtractedItems(numberedItems, activeSection);
+                numberedItems.forEach(item => addToSection(item, inferredSection, { forceSection: true }));
+                if (!activeSection) {
+                    activeSection = inferredSection;
+                }
+                continue;
+            }
+
             if (!activeSection) continue;
 
             if (activeSection === 'sentences') {
-                const numberedItems = extractItems(line);
-                if (numberedItems.length > 1) {
-                    flushSentence();
-                    numberedItems.forEach(item => addToSection(item, 'sentences', { forceSection: true }));
-                    continue;
-                }
-
                 const numberedMatch = line.match(/^\s*(\d{1,2})[.\s、:]+(.*)$/);
                 if (numberedMatch) {
                     flushSentence();
