@@ -310,13 +310,15 @@ const ImageOCR = (() => {
         return seed;
     }
 
-    function buildRecognizedDataFromAiSentences(sentences, baseData, rawText = '') {
+    function buildRecognizedDataFromAiStructure(aiResult, baseData, rawText = '') {
         const snapshot = recognizedData;
         recognizedData = createParseSeed(baseData);
         recognizedData.raw = rawText;
 
-        sentences.forEach(sentence => {
-            addToSection(sentence, 'sentences', { forceSection: true });
+        ['words', 'phrases', 'sentences'].forEach(type => {
+            (aiResult[type] || []).forEach(item => {
+                addToSection(item.en, type, { forceSection: true, presetCn: item.cn || '' });
+            });
         });
 
         autoTranslateAll();
@@ -325,20 +327,30 @@ const ImageOCR = (() => {
         return parsed;
     }
 
-    async function fetchAiSentencesFromImage(imageData, fileName, hintText = '') {
+    async function fetchAiStructureFromImage(imageData, fileName, hintText = '', expectedSection = '') {
         try {
             const res = await fetch('/api/ocr/ai-sentences', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ imageData, fileName, hintText })
+                body: JSON.stringify({ imageData, fileName, hintText, expectedSection })
             });
-            if (!res.ok) return [];
+            if (!res.ok) return null;
             const data = await res.json();
-            return Array.isArray(data && data.sentences) ? data.sentences : [];
+            if (!data) return null;
+            return {
+                section: data.section || 'mixed',
+                words: Array.isArray(data.words) ? data.words : [],
+                phrases: Array.isArray(data.phrases) ? data.phrases : [],
+                sentences: Array.isArray(data.sentences) ? data.sentences : []
+            };
         } catch (err) {
-            console.warn('[OCR] AI sentence extraction failed:', err);
-            return [];
+            console.warn('[OCR] AI structure extraction failed:', err);
+            return null;
         }
+    }
+
+    function hasAiItems(aiResult) {
+        return !!aiResult && ['words', 'phrases', 'sentences'].some(type => Array.isArray(aiResult[type]) && aiResult[type].length > 0);
     }
 
     function parseOcrTextToRecognizedData(rawText, baseData, parseHint = {}) {
@@ -915,7 +927,8 @@ const ImageOCR = (() => {
                     kind: 'image',
                     index: i,
                     name: file.name,
-                    imageSrc: imageData
+                    imageSrc: imageData,
+                    rawText: String((result.data && result.data.text) || '')
                 };
                 uploadedImageReferences.push(sourceRef);
                 const baseRawText = buildUsableRawTextFromOcr(result.data);
@@ -926,11 +939,14 @@ const ImageOCR = (() => {
                     : baseRawText;
                 let parsedData = null;
 
-                if (parseHint.forceSection === 'sentences') {
-                    const aiSentences = await fetchAiSentencesFromImage(imageData, file.name, parseHint.fullOcrText);
-                    if (aiSentences.length > 0) {
-                        parsedData = buildRecognizedDataFromAiSentences(aiSentences, aggregateData, rawText);
-                    }
+                const aiResult = await fetchAiStructureFromImage(
+                    imageData,
+                    file.name,
+                    parseHint.fullOcrText,
+                    parseHint.forceSection || ''
+                );
+                if (hasAiItems(aiResult)) {
+                    parsedData = buildRecognizedDataFromAiStructure(aiResult, aggregateData, rawText);
                 }
 
                 if (!parsedData) {
@@ -1649,6 +1665,7 @@ const ImageOCR = (() => {
     // Add item to appropriate section - respects assigned section
     function addToSection(text, section, options = {}) {
         const forceSection = !!options.forceSection;
+        const presetCn = String(options.presetCn || '').trim();
         text = fixCommonOcrTextIssues(
             trimTrailingCarryover(trimTrailingOcrNoise(text)),
             section === 'sentences' || forceSection
@@ -1676,7 +1693,7 @@ const ImageOCR = (() => {
             targetSection = 'phrases';
         }
 
-        const cn = autoTranslate(text);
+        const cn = presetCn || autoTranslate(text);
         const item = {
             en: text,
             cn: cn,
@@ -2058,9 +2075,10 @@ const ImageOCR = (() => {
 
         image.src = src;
         if (summary) {
+            const itemText = inputEl.value.trim();
             summary.textContent = sourceRef && sourceRef.name
-                ? `当前内容来自：${sourceRef.name}`
-                : '原图参考 Original image reference';
+                ? `当前内容：${itemText || '（空）'} ｜ 来源图片：${sourceRef.name}`
+                : `当前内容：${itemText || '（空）'} ｜ 原图参考 Original image reference`;
         }
         panel.style.display = 'block';
         panel.classList.add('is-visible');

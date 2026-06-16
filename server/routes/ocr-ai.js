@@ -125,6 +125,10 @@ function normalizeSentence(text) {
         .trim();
 }
 
+function normalizeCn(text) {
+    return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
 function sanitizeSentences(list) {
     const seen = new Set();
     return (Array.isArray(list) ? list : [])
@@ -138,22 +142,65 @@ function sanitizeSentences(list) {
         });
 }
 
-async function callVisionModel(imageData, fileName, hintText) {
+function sanitizeStructuredItems(list) {
+    const seen = new Set();
+    return (Array.isArray(list) ? list : [])
+        .map(item => {
+            if (typeof item === 'string') {
+                return { en: normalizeSentence(item), cn: '' };
+            }
+            return {
+                en: normalizeSentence(item && item.en),
+                cn: normalizeCn(item && item.cn)
+            };
+        })
+        .filter(item => item.en && /[A-Za-z]{2,}/.test(item.en))
+        .filter(item => {
+            const key = item.en.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+}
+
+function sanitizeStructure(payload) {
+    const section = ['words', 'phrases', 'sentences', 'mixed'].includes(payload && payload.section)
+        ? payload.section
+        : 'mixed';
+    return {
+        section,
+        words: sanitizeStructuredItems(payload && payload.words),
+        phrases: sanitizeStructuredItems(payload && payload.phrases),
+        sentences: sanitizeStructuredItems(payload && payload.sentences)
+    };
+}
+
+function buildVisionPrompt(fileName, hintText, expectedSection = '') {
+    const expected = expectedSection ? `Expected section hint: ${expectedSection}` : '';
+    return [
+        'Read this English exercise image carefully.',
+        'Use the Chinese title/instruction in the image as the highest-priority signal to decide whether the content belongs to words, phrases, or sentences.',
+        'If the image title says 短语 / 词组 / 课文短语翻译, put the extracted items in phrases.',
+        'If the image title says 句子 / 根据句子意思和提示翻译句子 / 完成句子, put the extracted items in sentences.',
+        'If the image title says 单词 / 词汇, put the extracted items in words.',
+        'For numbered sentence exercises, extract the COMPLETE English sentence after each Arabic numeral. Never truncate.',
+        'Preserve punctuation, apostrophes, slashes, ellipsis, and choice forms like keep/kept, made/makes, fill...with....',
+        'For every extracted item, provide a concise Chinese translation in cn.',
+        'If a section is absent, return an empty array for it.',
+        'Return ONLY JSON in this exact shape: {"section":"words|phrases|sentences|mixed","words":[{"en":"","cn":""}],"phrases":[{"en":"","cn":""}],"sentences":[{"en":"","cn":""}]}.',
+        fileName ? `File name hint: ${fileName}` : '',
+        expected,
+        hintText ? `OCR hint text: ${String(hintText).slice(0, 5000)}` : ''
+    ].filter(Boolean).join('\n');
+}
+
+async function callVisionModel(imageData, fileName, hintText, expectedSection = '') {
     const config = getVisionConfig();
     if (!config) {
-        return { available: false, sentences: [] };
+        return { available: false, section: 'mixed', words: [], phrases: [], sentences: [] };
     }
 
-    const prompt = [
-        'Read this English exercise image carefully.',
-        'If the image is a numbered sentence-translation exercise, extract the COMPLETE English sentence after each Arabic numeral.',
-        'Do not truncate sentences. Preserve punctuation, apostrophes, slashes, and choice forms like keep/kept or made/makes.',
-        'Ignore Chinese translations and headers except to decide whether the exercise is about sentences.',
-        'If the image is not a sentence exercise, return an empty array.',
-        'Return ONLY JSON in this exact shape: {"sentences":["..."]}.',
-        fileName ? `File name hint: ${fileName}` : '',
-        hintText ? `OCR hint text: ${String(hintText).slice(0, 4000)}` : ''
-    ].filter(Boolean).join('\n');
+    const prompt = buildVisionPrompt(fileName, hintText, expectedSection);
 
     if (config.provider === 'gemini') {
         const dataUrlMatch = imageData.match(/^data:(image\/[A-Za-z0-9.+-]+);base64,(.+)$/);
@@ -195,11 +242,11 @@ async function callVisionModel(imageData, fileName, hintText) {
         }
 
         const payload = await response.json();
-        const parsed = parseJsonObject(extractGeminiText(payload));
+        const parsed = sanitizeStructure(parseJsonObject(extractGeminiText(payload)) || {});
         return {
             available: true,
             provider: config.provider,
-            sentences: sanitizeSentences(parsed && parsed.sentences)
+            ...parsed
         };
     }
 
@@ -249,12 +296,20 @@ async function callVisionModel(imageData, fileName, hintText) {
     }
 
     const payload = await response.json();
-    const parsed = parseJsonObject(extractMessageText(payload));
+    const parsed = sanitizeStructure(parseJsonObject(extractMessageText(payload)) || {});
     return {
         available: true,
         provider: config.provider,
-        sentences: sanitizeSentences(parsed && parsed.sentences)
+        ...parsed
     };
+}
+
+function flattenSentences(result) {
+    if (!result) return [];
+    if (Array.isArray(result.sentences)) {
+        return result.sentences.map(item => typeof item === 'string' ? item : item.en).filter(Boolean);
+    }
+    return [];
 }
 
 router.post('/ai-sentences', async (req, res) => {
@@ -262,18 +317,23 @@ router.post('/ai-sentences', async (req, res) => {
         const imageData = String(req.body && req.body.imageData || '').trim();
         const fileName = String(req.body && req.body.fileName || '').trim();
         const hintText = String(req.body && req.body.hintText || '').trim();
+        const expectedSection = String(req.body && req.body.expectedSection || '').trim();
 
         if (!imageData.startsWith('data:image/')) {
             return res.status(400).json({ error: 'imageData is required' });
         }
 
-        const result = await callVisionModel(imageData, fileName, hintText);
+        const result = await callVisionModel(imageData, fileName, hintText, expectedSection);
         if (!result.available) {
             return res.status(503).json({ error: 'AI OCR not configured' });
         }
 
         return res.json({
+            section: result.section,
+            words: result.words,
+            phrases: result.phrases,
             sentences: result.sentences,
+            sentenceTexts: flattenSentences(result),
             provider: result.provider || 'unknown'
         });
     } catch (err) {
