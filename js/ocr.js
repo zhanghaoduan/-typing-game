@@ -103,6 +103,16 @@ const ImageOCR = (() => {
         const raw = String(rawOcrText || '');
         const compactRaw = raw.replace(/\s+/g, '');
         const normalizedRaw = raw.toLowerCase();
+        const topLines = raw
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(Boolean)
+            .slice(0, 8);
+        const titleContext = topLines
+            .filter(line => /[\u4e00-\u9fff]/.test(line) || /^[一二三四五六七八九十][、.]/.test(line))
+            .join(' ');
+        const normalizedTitleContext = titleContext.toLowerCase();
+        const compactTitleContext = titleContext.replace(/\s+/g, '');
 
         const sentenceSignals = [
             '句子', '翻译句子', '根据句子意思', '完成句子', '英译汉', '汉译英',
@@ -116,13 +126,24 @@ const ImageOCR = (() => {
             normalizedRaw.includes(signal.toLowerCase()) ||
             compactRaw.includes(signal.replace(/\s+/g, ''))
         );
+        const hasTitleSignal = (signals) => signals.some(signal =>
+            normalizedTitleContext.includes(signal.toLowerCase()) ||
+            compactTitleContext.includes(signal.replace(/\s+/g, ''))
+        );
+
+        const hasSentenceTitleSignal = hasTitleSignal(sentenceSignals);
+        const hasPhraseTitleSignal = hasTitleSignal(phraseSignals);
+        const hasWordTitleSignal = hasTitleSignal(wordSignals);
 
         const hasSentenceSignal = hasSignal(sentenceSignals);
         const hasPhraseSignal = hasSignal(phraseSignals);
         const hasWordSignal = hasSignal(wordSignals);
 
         let forceSection = null;
-        if (hasSentenceSignal) forceSection = 'sentences';
+        if (hasSentenceTitleSignal) forceSection = 'sentences';
+        else if (hasPhraseTitleSignal) forceSection = 'phrases';
+        else if (hasWordTitleSignal) forceSection = 'words';
+        else if (hasSentenceSignal) forceSection = 'sentences';
         else if (hasPhraseSignal) forceSection = 'phrases';
         else if (hasWordSignal) forceSection = 'words';
 
@@ -132,7 +153,7 @@ const ImageOCR = (() => {
             .filter(line => /^\s*\d{1,2}[.\s、:]/.test(line) && /[A-Za-z]{2,}/.test(line));
 
         // Only let content heuristics decide when the file name / title signals are ambiguous.
-        if (!hasPhraseSignal && !hasWordSignal && numberedLines.length >= 3) {
+        if (!hasPhraseTitleSignal && !hasWordTitleSignal && !hasPhraseSignal && !hasWordSignal && numberedLines.length >= 3) {
             const sentenceStarters = /^(i|we|you|he|she|it|they|this|that|these|those|my|our|his|her|their|tom|love|a|an|the|in|hard)\b/i;
             const sentenceLikeCount = numberedLines.filter(line => {
                 const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
