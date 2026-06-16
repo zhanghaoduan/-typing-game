@@ -212,6 +212,128 @@ const ImageOCR = (() => {
         return rebalanced;
     }
 
+    const MIXED_SECTION_PATTERNS = {
+        words: [/看音标写单词/i, /写单词/i, /\b(?:vocabulary|words?)\b/i],
+        phrases: [/词组练习/i, /词组/i, /短语/i, /\bphrases?\b/i],
+        sentences: [/翻译句子/i, /句子/i, /translate the sentences/i, /\bsentences?\b/i]
+    };
+
+    function findFirstPatternMatch(text, patterns = []) {
+        let best = null;
+        patterns.forEach((pattern) => {
+            const regex = new RegExp(pattern.source, pattern.flags.replace(/g/g, ''));
+            const match = regex.exec(text);
+            if (!match) return;
+            if (!best || match.index < best.index) {
+                best = { index: match.index, length: match[0].length };
+            }
+        });
+        return best;
+    }
+
+    function extractMixedSectionSlice(fullText, section) {
+        const source = String(fullText || '');
+        const start = findFirstPatternMatch(source, MIXED_SECTION_PATTERNS[section] || []);
+        if (!start) return '';
+
+        const startPos = start.index + start.length;
+        let endPos = source.length;
+        Object.entries(MIXED_SECTION_PATTERNS).forEach(([otherSection, patterns]) => {
+            if (otherSection === section) return;
+            const match = findFirstPatternMatch(source.slice(startPos), patterns);
+            if (!match) return;
+            endPos = Math.min(endPos, startPos + match.index);
+        });
+        return source.slice(startPos, endPos).trim();
+    }
+
+    function extractOrderedSectionMap(sectionText, section) {
+        const text = String(sectionText || '').replace(/\r/g, '\n');
+        const starts = [];
+        const startRegex = /(?:^|\s)(\d{1,2})[.\s、:]+/g;
+        let match;
+        while ((match = startRegex.exec(text)) !== null) {
+            const offset = /^\s/.test(match[0]) ? 1 : 0;
+            starts.push({
+                number: Number(match[1]),
+                pos: match.index + offset,
+                length: match[0].trimStart().length
+            });
+        }
+
+        const ordered = new Map();
+        starts.forEach((start, index) => {
+            const startPos = start.pos + start.length;
+            const endPos = index + 1 < starts.length ? starts[index + 1].pos : text.length;
+            const block = text.slice(startPos, endPos).replace(/\s+/g, ' ').trim();
+            if (!block) return;
+
+            let candidate = '';
+            if (section === 'words') {
+                candidate = normalizeWordCandidate(block);
+                if (!isLikelyWordEntry(candidate)) return;
+            } else if (section === 'phrases') {
+                candidate = trimTrailingCarryover(
+                    trimTrailingOcrNoise(block.replace(/[^a-zA-Z0-9\s.,!?'"\-\/…]/g, ' ').trim())
+                );
+                if (!candidate || countEnglishWords(candidate) < 2 || countEnglishWords(candidate) > 8) return;
+            } else {
+                candidate = fixCommonOcrTextIssues(
+                    trimTrailingCarryover(trimTrailingOcrNoise(block)),
+                    true
+                ).trim();
+                if (!candidate || countEnglishWords(candidate) < 4) return;
+            }
+
+            const existing = ordered.get(start.number);
+            if (!existing || countEnglishWords(candidate) > countEnglishWords(existing)) {
+                ordered.set(start.number, candidate);
+            }
+        });
+        return ordered;
+    }
+
+    function buildOrderedRuntimeItems(sectionMap) {
+        return [...sectionMap.entries()]
+            .sort((a, b) => a[0] - b[0])
+            .map(([, text]) => buildRuntimeItem(text))
+            .filter(Boolean);
+    }
+
+    function mergeSentenceItemsByOrder(currentItems, extractedItems) {
+        if (extractedItems.length === 0) return currentItems;
+        if (currentItems.length === 0) return extractedItems;
+        return extractedItems.map((item, index) => {
+            const current = currentItems[index];
+            if (!current) return item;
+            return countEnglishWords(item.en) >= countEnglishWords(current.en || '') ? item : current;
+        });
+    }
+
+    function completeMixedSectionsFromFullOcr(data, parseHint = {}) {
+        const fullText = String(parseHint.fullOcrText || '');
+        if (!fullText) return data;
+
+        const completed = cloneRecognizedData(data);
+        ['words', 'phrases', 'sentences'].forEach((section) => {
+            const sectionSlice = extractMixedSectionSlice(fullText, section);
+            if (!sectionSlice) return;
+            const sectionMap = extractOrderedSectionMap(sectionSlice, section);
+            const extractedItems = buildOrderedRuntimeItems(sectionMap);
+            if (extractedItems.length === 0) return;
+
+            if (section === 'sentences') {
+                completed.sentences = mergeSentenceItemsByOrder(completed.sentences || [], extractedItems);
+                return;
+            }
+
+            if (extractedItems.length >= (completed[section] || []).length) {
+                completed[section] = extractedItems;
+            }
+        });
+        return completed;
+    }
+
     function detectSourceParseHint(fileName, rawOcrText) {
         const name = String(fileName || '').toLowerCase();
         const raw = String(rawOcrText || '');
@@ -1116,6 +1238,7 @@ const ImageOCR = (() => {
                     );
                 }
                 parsedData = rebalanceParsedSections(parsedData, parseHint);
+                parsedData = completeMixedSectionsFromFullOcr(parsedData, parseHint);
                 attachSourceReference(parsedData, sourceRef);
                 mergeRecognizedData(aggregateData, parsedData);
                 sourceIndex += 1;
