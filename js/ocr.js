@@ -78,10 +78,37 @@ const ImageOCR = (() => {
         });
     }
 
-    function parseOcrTextToRecognizedData(rawText, baseData) {
+    function detectSourceParseHint(fileName, rawOcrText) {
+        const name = String(fileName || '').toLowerCase();
+        const raw = String(rawOcrText || '');
+        const compactRaw = raw.replace(/\s+/g, '');
+        const normalizedRaw = raw.toLowerCase();
+
+        const sentenceSignals = [
+            '句子', '翻译句子', '根据句子意思', '完成句子', '英译汉', '汉译英',
+            'translate the sentences', 'translate sentences', 'complete the sentences', 'sentence'
+        ];
+        const phraseSignals = ['短语', '词组', 'phrase', 'phrases'];
+        const wordSignals = ['单词', '词汇', 'word', 'words', 'vocabulary'];
+
+        const hasSignal = (signals) => signals.some(signal =>
+            name.includes(signal.toLowerCase()) ||
+            normalizedRaw.includes(signal.toLowerCase()) ||
+            compactRaw.includes(signal.replace(/\s+/g, ''))
+        );
+
+        let forceSection = null;
+        if (hasSignal(sentenceSignals)) forceSection = 'sentences';
+        else if (hasSignal(phraseSignals)) forceSection = 'phrases';
+        else if (hasSignal(wordSignals)) forceSection = 'words';
+
+        return { forceSection };
+    }
+
+    function parseOcrTextToRecognizedData(rawText, baseData, parseHint = {}) {
         const snapshot = recognizedData;
         recognizedData = cloneRecognizedData(baseData || createEmptyRecognizedData());
-        smartParse(rawText);
+        smartParse(rawText, parseHint);
         const parsed = cloneRecognizedData(recognizedData);
         recognizedData = snapshot;
         return parsed;
@@ -485,7 +512,8 @@ const ImageOCR = (() => {
                 };
                 uploadedImageReferences.push(sourceRef);
                 const rawText = buildUsableRawTextFromOcr(result.data);
-                const parsedData = parseOcrTextToRecognizedData(rawText, aggregateData);
+                const parseHint = detectSourceParseHint(file.name, result.data.text || rawText);
+                const parsedData = parseOcrTextToRecognizedData(rawText, aggregateData, parseHint);
                 attachSourceReference(parsedData, sourceRef);
                 mergeRecognizedData(aggregateData, parsedData);
                 sourceIndex += 1;
@@ -892,7 +920,7 @@ const ImageOCR = (() => {
     }
 
     // ========== SMART STRUCTURED PARSING ==========
-    function smartParse(rawText) {
+    function smartParse(rawText, parseHint = {}) {
         const prevMeta = {
             publisher: recognizedData.publisher || '',
             grade: recognizedData.grade || '',
@@ -904,6 +932,7 @@ const ImageOCR = (() => {
         recognizedData.book = prevMeta.book;
 
         const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        const forcedSection = parseHint.forceSection || null;
 
         // 1. Detect unit name
         for (const line of lines) {
@@ -970,7 +999,7 @@ const ImageOCR = (() => {
             const items = extractItems(line);
             if (items.length > 0) {
                 if (!currentGroup) {
-                    currentGroup = { items: [], avgWordCount: 0 };
+                    currentGroup = { items: [], avgWordCount: 0, forcedSection };
                 }
                 currentGroup.items.push(...items);
                 // Track the last number seen
@@ -983,9 +1012,14 @@ const ImageOCR = (() => {
                 const english = extractEnglish(line);
                 if (english) {
                     if (!currentGroup) {
-                        currentGroup = { items: [], avgWordCount: 0 };
+                        currentGroup = { items: [], avgWordCount: 0, forcedSection };
                     }
-                    splitSemicolonPhraseCandidates(english).forEach(item => currentGroup.items.push(item));
+                    if (forcedSection === 'sentences' && currentGroup.items.length > 0) {
+                        const lastIndex = currentGroup.items.length - 1;
+                        currentGroup.items[lastIndex] = joinSentenceParts(currentGroup.items[lastIndex], english);
+                    } else {
+                        splitSemicolonPhraseCandidates(english).forEach(item => currentGroup.items.push(item));
+                    }
                 }
             }
         }
@@ -1000,7 +1034,9 @@ const ImageOCR = (() => {
             const avgWords = group.items.reduce((sum, item) => sum + item.split(/\s+/).length, 0) / group.items.length;
 
             let section;
-            if (avgWords <= 1.3) {
+            if (group.forcedSection) {
+                section = group.forcedSection;
+            } else if (avgWords <= 1.3) {
                 section = 'words';
             } else if (avgWords <= 4.5) {
                 section = 'phrases';
@@ -1031,7 +1067,7 @@ const ImageOCR = (() => {
         // If parsing found very little, use enhanced fallback
         const total = recognizedData.words.length + recognizedData.phrases.length + recognizedData.sentences.length;
         if (total < 5) {
-            enhancedFallbackParse(lines);
+            enhancedFallbackParse(lines, parseHint);
         }
 
         // Auto-translate all items
@@ -1136,6 +1172,19 @@ const ImageOCR = (() => {
         return [text.trim()];
     }
 
+    function joinSentenceParts(base, continuation) {
+        const first = String(base || '').trim();
+        const second = String(continuation || '').trim();
+        if (!first) return second;
+        if (!second) return first;
+
+        const joined = `${first.replace(/[.,;:]+$/g, '').trim()} ${second.replace(/^[,.;:]+/g, '').trim()}`
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        return trimTrailingOcrNoise(joined);
+    }
+
     // Extract English text from a mixed line - improved
     function extractEnglish(line) {
         // Remove Chinese characters and special markers
@@ -1205,24 +1254,26 @@ const ImageOCR = (() => {
     }
 
     // Enhanced fallback parse when structured detection fails
-    function enhancedFallbackParse(lines) {
+    function enhancedFallbackParse(lines, parseHint = {}) {
+        const forcedSection = parseHint.forceSection || null;
         lines.forEach(line => {
             if (isHeaderOrGarbage(line)) return;
             const items = extractItems(line);
             if (items.length > 0) {
                 items.forEach(item => {
                     const wc = item.split(/\s+/).length;
-                    if (wc === 1) addToSection(item, 'words');
+                    if (forcedSection) addToSection(item, forcedSection);
+                    else if (wc === 1) addToSection(item, 'words');
                     else if (wc <= 5) addToSection(item, 'phrases');
                     else addToSection(item, 'sentences');
                 });
             } else {
                 const english = extractEnglish(line);
                 if (english) {
-                    const items = splitSemicolonPhraseCandidates(english);
+                    const items = forcedSection === 'sentences' ? [english] : splitSemicolonPhraseCandidates(english);
                     items.forEach(item => {
                         const wc = item.split(/\s+/).length;
-                        addToSection(item, wc >= 6 ? 'sentences' : 'phrases');
+                        addToSection(item, forcedSection || (wc >= 6 ? 'sentences' : 'phrases'));
                     });
                 }
             }
