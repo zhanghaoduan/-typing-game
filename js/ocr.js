@@ -122,28 +122,35 @@ const ImageOCR = (() => {
         else if (hasSignal(phraseSignals)) forceSection = 'phrases';
         else if (hasSignal(wordSignals)) forceSection = 'words';
 
-        if (!forceSection) {
-            const numberedLines = raw
-                .split(/\r?\n/)
-                .map(line => line.trim())
-                .filter(line => /^\s*\d{1,2}[.\s、:]/.test(line) && /[A-Za-z]{2,}/.test(line));
+        const numberedLines = raw
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(line => /^\s*\d{1,2}[.\s、:]/.test(line) && /[A-Za-z]{2,}/.test(line));
 
-            if (numberedLines.length >= 3) {
-                const sentenceStarters = /^(i|we|you|he|she|it|they|this|that|these|those|my|our|his|her|their|tom|love|a|an|the)\b/i;
-                const sentenceLikeCount = numberedLines.filter(line => {
-                    const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
-                    const wordCount = countEnglishWords(english);
-                    if (wordCount < 3) return false;
-                    if (/[,.!?]/.test(english)) return true;
-                    if (/^[A-Z]/.test(english)) return true;
-                    if (sentenceStarters.test(english)) return true;
-                    if (/\b(keep|kept|make|made|give|gave|love|loved|is|are|was|were|do|did|have|had|can|could|will|would|should)\b/i.test(english)) return true;
-                    return false;
-                }).length;
+        if (numberedLines.length >= 3) {
+            const sentenceStarters = /^(i|we|you|he|she|it|they|this|that|these|those|my|our|his|her|their|tom|love|a|an|the|in|hard)\b/i;
+            const sentenceLikeCount = numberedLines.filter(line => {
+                const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
+                const wordCount = countEnglishWords(english);
+                if (wordCount < 3) return false;
+                if (wordCount >= 6) return true;
+                if (/[,.!?]/.test(english)) return true;
+                if (/^[A-Z]/.test(english)) return true;
+                if (sentenceStarters.test(english)) return true;
+                if (/\b(keep|kept|make|made|give|gave|love|loved|is|are|was|were|do|did|have|had|can|could|will|would|should|there|happy|work|working)\b/i.test(english)) return true;
+                return false;
+            }).length;
 
-                if (sentenceLikeCount >= Math.max(3, Math.ceil(numberedLines.length * 0.6))) {
-                    forceSection = 'sentences';
-                }
+            const avgWords = numberedLines.reduce((sum, line) => {
+                const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
+                return sum + countEnglishWords(english);
+            }, 0) / numberedLines.length;
+
+            if (
+                sentenceLikeCount >= Math.max(3, Math.ceil(numberedLines.length * 0.6)) ||
+                avgWords >= 5
+            ) {
+                forceSection = 'sentences';
             }
         }
 
@@ -476,7 +483,8 @@ const ImageOCR = (() => {
         fixed = fixed
             .replace(/^T(?=\s+(?:am|was|have|had|can|could|will|would|should|may|might|must|love|loved|like|liked|keep|kept|play|played|want|wanted|decide|decided|make|made|go|went|feel|felt)\b)/, 'I')
             .replace(/^Alife\b/i, 'A life')
-            .replace(/^Ayear\b/i, 'A year');
+            .replace(/^Ayear\b/i, 'A year')
+            .replace(/\b([A-Za-z]+)\.\s+([A-Za-z]+)\.\.\./g, '$1...$2...');
 
         if (preferSentence) {
             fixed = fixed
