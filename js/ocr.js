@@ -42,6 +42,11 @@ const ImageOCR = (() => {
         '初一上','初一下','初二上','初二下','初三上','初三下',
         '高一上','高一下','高二上','高二下','高三上','高三下'
     ];
+    const COMMON_SHORT_WORDS = new Set([
+        'a','an','as','at','be','by','do','go','he','if','in','is','it','me','my',
+        'of','on','or','so','to','up','we','am','are','off','out','for','the','and',
+        'you','she','her','his','our','ago','air'
+    ]);
 
     // Initialize upload area event listeners
     function init() {
@@ -286,6 +291,54 @@ const ImageOCR = (() => {
         return false;
     }
 
+    function normalizeTokenCore(token) {
+        return String(token || '')
+            .replace(/^[^A-Za-z]+|[^A-Za-z'.-]+$/g, '')
+            .trim();
+    }
+
+    function isSuspiciousTrailingToken(token, afterSuspiciousSuffix = false) {
+        const core = normalizeTokenCore(token);
+        const lettersOnly = core.replace(/[^A-Za-z]/g, '');
+        if (!lettersOnly) return afterSuspiciousSuffix;
+
+        const lower = lettersOnly.toLowerCase();
+        if (/(.)\1{3,}/i.test(lettersOnly)) return true;
+        if (/[a-z][A-Z]|[A-Z][a-z].*[A-Z]/.test(core)) return true;
+        if (lettersOnly.length <= 1) return true;
+        if (lettersOnly === lettersOnly.toUpperCase() && lettersOnly.length >= 2 && !COMMON_SHORT_WORDS.has(lower)) return true;
+        if (lettersOnly.length <= 2 && /^[A-Z][a-z]*$/.test(lettersOnly) && !COMMON_SHORT_WORDS.has(lower)) return true;
+        if (lettersOnly.length >= 4 && !/[aeiouy]/i.test(lettersOnly) && !/^(rhythms?|myths?|lymph|glyph|lynx)$/i.test(lettersOnly)) return true;
+        if (afterSuspiciousSuffix && lettersOnly.length <= 3 && !COMMON_SHORT_WORDS.has(lower)) return true;
+        return false;
+    }
+
+    function trimTrailingOcrNoise(text) {
+        const normalized = normalizeOcrLineText(text);
+        const tokens = normalized.split(/\s+/).filter(Boolean);
+        if (tokens.length < 2) return normalized;
+
+        const minKeep = countEnglishWords(normalized) >= 5 ? 3 : 2;
+        let cutIndex = tokens.length;
+        let suspiciousSuffix = false;
+
+        for (let i = tokens.length - 1; i >= minKeep; i--) {
+            if (isSuspiciousTrailingToken(tokens[i], suspiciousSuffix)) {
+                cutIndex = i;
+                suspiciousSuffix = true;
+                continue;
+            }
+            if (suspiciousSuffix) break;
+        }
+
+        const cleaned = suspiciousSuffix ? tokens.slice(0, cutIndex).join(' ') : normalized;
+        return cleaned
+            .replace(/\s+([,!?;:])/g, '$1')
+            .replace(/\.{4,}/g, '...')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
     function buildUsableRawTextFromOcr(ocrData) {
         const rawText = String((ocrData && ocrData.text) || '').trim();
         const lines = Array.isArray(ocrData && ocrData.lines) ? ocrData.lines : [];
@@ -293,7 +346,7 @@ const ImageOCR = (() => {
 
         const kept = lines
             .map(line => {
-                const text = normalizeOcrLineText(line && line.text);
+                const text = trimTrailingOcrNoise(line && line.text);
                 const confidence = Number(line && (line.confidence ?? line.conf)) || 0;
                 return { text, confidence };
             })
@@ -980,7 +1033,7 @@ const ImageOCR = (() => {
             // Validate: must have at least one real English word (2+ alpha chars)
             if (text.length >= 2 && text.match(/[a-zA-Z]{2,}/)) {
                 // Remove non-English garbage but keep dots/ellipsis (for "see...as")
-                const cleaned = text.replace(/[^a-zA-Z\s.,!?'"\-…]/g, '').trim();
+                const cleaned = trimTrailingOcrNoise(text.replace(/[^a-zA-Z\s.,!?'"\-…]/g, '').trim());
                 if (cleaned.length >= 2) {
                     splitSemicolonPhraseCandidates(cleaned).forEach(item => items.push(item));
                 }
@@ -1029,6 +1082,7 @@ const ImageOCR = (() => {
         english = english.replace(/\s+/g, ' ').trim();
         // Remove trailing garbage
         english = english.replace(/[^\w\s.,!?'";\-]$/g, '').trim();
+        english = trimTrailingOcrNoise(english);
 
         if (english.match(/[a-zA-Z]{2,}/) && countEnglishWords(english) >= 2 && !looksLikeOcrGarbage(english)) {
             return english;
@@ -1038,7 +1092,7 @@ const ImageOCR = (() => {
 
     // Add item to appropriate section - respects assigned section
     function addToSection(text, section) {
-        text = text.trim();
+        text = trimTrailingOcrNoise(text).trim();
         if (!text || text.length < 2) return;
 
         // Filter out obvious garbage
