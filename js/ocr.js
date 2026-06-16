@@ -608,20 +608,33 @@ const ImageOCR = (() => {
     }
 
     function extractNumberedSentenceFallbacks(rawText) {
-        const text = String(rawText || '').replace(/\r/g, '');
-        const matches = [...text.matchAll(/(?:^|\n)\s*(\d{1,2})[.\s、:]+([\s\S]*?)(?=(?:\n\s*\d{1,2}[.\s、:]+)|$)/g)];
+        const text = String(rawText || '').replace(/\r/g, ' ').replace(/\n+/g, ' ');
+        const starts = [];
+        const startRegex = /(?:^|\s)(\d{1,2})[.\s、:]+/g;
+        let match;
+
+        while ((match = startRegex.exec(text)) !== null) {
+            const offset = /^\s/.test(match[0]) ? 1 : 0;
+            starts.push({
+                number: Number(match[1]),
+                pos: match.index + offset,
+                length: match[0].trimStart().length
+            });
+        }
+
         const fallbacks = new Map();
 
-        matches.forEach((match) => {
-            const number = Number(match[1]);
-            const block = String(match[2] || '').replace(/\n+/g, ' ');
+        starts.forEach((start, index) => {
+            const startPos = start.pos + start.length;
+            const endPos = index + 1 < starts.length ? starts[index + 1].pos : text.length;
+            const block = text.slice(startPos, endPos).trim();
             const english = extractEnglish(block);
             if (!english) return;
             const normalized = fixCommonOcrTextIssues(trimTrailingCarryover(trimTrailingOcrNoise(english)), true);
             if (!normalized) return;
-            const existing = fallbacks.get(number);
+            const existing = fallbacks.get(start.number);
             if (!existing || countEnglishWords(normalized) > countEnglishWords(existing)) {
-                fallbacks.set(number, normalized);
+                fallbacks.set(start.number, normalized);
             }
         });
 
