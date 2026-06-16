@@ -164,6 +164,54 @@ const ImageOCR = (() => {
         return data;
     }
 
+    function buildRuntimeItem(text, presetCn = '') {
+        const normalized = fixCommonOcrTextIssues(trimTrailingCarryover(trimTrailingOcrNoise(text))).trim();
+        if (!normalized) return null;
+        return {
+            en: normalized,
+            cn: String(presetCn || '').trim() || autoTranslate(normalized),
+            difficulty: countEnglishWords(normalized) === 1 ? 1 : (countEnglishWords(normalized) <= 5 ? 2 : 3)
+        };
+    }
+
+    function pushUniqueRuntimeItem(list, item) {
+        if (!item || !Array.isArray(list)) return;
+        if (!list.find(existing => String(existing.en || '').toLowerCase() === String(item.en || '').toLowerCase())) {
+            list.push(item);
+        }
+    }
+
+    function extractNumberedBlobItems(text) {
+        const raw = String(text || '').trim();
+        if (!/\s\d{1,2}[.\s、:]+/.test(raw)) return [];
+        const synthetic = /^\s*\d{1,2}[.\s、:]+/.test(raw) ? raw : `1. ${raw}`;
+        return extractItems(synthetic);
+    }
+
+    function rebalanceParsedSections(data, parseHint = {}) {
+        if (!data) return data;
+        const rebalanced = cloneRecognizedData(data);
+        const keptSentences = [];
+
+        rebalanced.sentences.forEach(item => {
+            const blobItems = extractNumberedBlobItems(item && item.en);
+            if (blobItems.length >= 2) {
+                const inferredSection = classifyExtractedItems(blobItems, 'sentences');
+                if (inferredSection !== 'sentences') {
+                    blobItems.forEach(part => {
+                        const runtimeItem = buildRuntimeItem(part);
+                        if (runtimeItem) pushUniqueRuntimeItem(rebalanced[inferredSection], runtimeItem);
+                    });
+                    return;
+                }
+            }
+            keptSentences.push(item);
+        });
+
+        rebalanced.sentences = keptSentences;
+        return rebalanced;
+    }
+
     function detectSourceParseHint(fileName, rawOcrText) {
         const name = String(fileName || '').toLowerCase();
         const raw = String(rawOcrText || '');
@@ -1067,6 +1115,7 @@ const ImageOCR = (() => {
                         parseHint.fullOcrText
                     );
                 }
+                parsedData = rebalanceParsedSections(parsedData, parseHint);
                 attachSourceReference(parsedData, sourceRef);
                 mergeRecognizedData(aggregateData, parsedData);
                 sourceIndex += 1;
