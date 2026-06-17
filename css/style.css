@@ -1565,6 +1565,37 @@ body {
     border: 1px solid var(--border);
 }
 
+/* Ensure user-info buttons stay readable on any theme/background.
+   Previously btn-outline used var(--primary) which can blend with
+   dark navy backgrounds, making "luckzyj" / "退出 Logout" hard to read. */
+.user-info .btn-outline {
+    background: rgba(255, 255, 255, 0.92);
+    color: #1e293b;
+    border-color: #cbd5e1;
+}
+.user-info .btn-outline:hover {
+    background: var(--primary);
+    color: #ffffff;
+    border-color: var(--primary);
+}
+body.theme-space .user-info,
+body.theme-dark .user-info {
+    background: #0b1220;
+    border-color: #334155;
+}
+body.theme-space .user-info .btn-outline,
+body.theme-dark .user-info .btn-outline {
+    background: #f8fafc;
+    color: #0f172a;
+    border-color: #94a3b8;
+}
+body.theme-space .user-info .btn-outline:hover,
+body.theme-dark .user-info .btn-outline:hover {
+    background: #fde68a;
+    color: #1e293b;
+    border-color: #fbbf24;
+}
+
 .user-badge {
     font-weight: 600;
     padding: 4px 12px;

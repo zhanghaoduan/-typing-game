@@ -184,3 +184,12 @@ Web Speech API 语音合成兼容性：
   - `GITHUB_TOKEN` + `GITHUB_MODELS_MODEL`
   - `OCR_VISION_API_KEY` + `OCR_VISION_MODEL`，可选 `OCR_VISION_BASE_URL`
 - 未配置时会自动回退到原有 OCR 逻辑。
+
+## 🧠 DeepSeek 智能分类（单词 / 词组 / 句子）
+
+- OCR 完成后，可选地调用 DeepSeek 对识别到的所有条目重新分类，按图片原始序号顺序整理到「单词 / 词组 / 句子」三类中。
+- 服务端环境变量：
+  - `DEEPSEEK_API_KEY`（必填，启用此功能）
+  - `DEEPSEEK_MODEL`（可选，默认 `deepseek-chat`）
+  - `DEEPSEEK_BASE_URL`（可选，默认 `https://api.deepseek.com/chat/completions`）
+- 未配置时前端会跳过分类步骤，沿用原有 OCR/AI 解析结果，不影响其他功能。

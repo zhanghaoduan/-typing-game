@@ -346,4 +346,113 @@ router.post('/ai-sentences', async (req, res) => {
     }
 });
 
+function getDeepSeekConfig() {
+    if (!process.env.DEEPSEEK_API_KEY) return null;
+    return {
+        apiKey: process.env.DEEPSEEK_API_KEY,
+        model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+        url: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/chat/completions'
+    };
+}
+
+function buildClassifyPrompt(items) {
+    const lines = items.map((item, idx) => {
+        const en = String(item.en || '').replace(/\s+/g, ' ').trim();
+        const cn = String(item.cn || '').replace(/\s+/g, ' ').trim();
+        return `${idx + 1}. en="${en}"${cn ? ` cn="${cn}"` : ''}`;
+    });
+    return [
+        'You classify English study items extracted from Chinese textbook OCR.',
+        'For each numbered item, decide if it is best practiced as:',
+        '  - "word"     : a single English word (may include hyphen, e.g. "well-known")',
+        '  - "phrase"   : a fixed expression of 2-7 words, NOT a complete sentence (no subject+verb+object forming a full clause), e.g. "look forward to", "make up of"',
+        '  - "sentence" : a complete English sentence with subject and verb, usually ending with . ? !',
+        'Use the meaning, length, and grammatical completeness to decide. Ignore item numbering.',
+        'Preserve the original order. The output array length MUST match the input length.',
+        'Return ONLY JSON in this exact shape: {"classifications":[{"index":1,"type":"word|phrase|sentence"}, ...]}',
+        '',
+        'Items:',
+        ...lines
+    ].join('\n');
+}
+
+async function callDeepSeekClassify(items) {
+    const config = getDeepSeekConfig();
+    if (!config) return null;
+
+    const prompt = buildClassifyPrompt(items);
+    const response = await fetch(config.url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${config.apiKey}`
+        },
+        body: JSON.stringify({
+            model: config.model,
+            temperature: 0,
+            max_tokens: Math.min(4000, 60 + items.length * 25),
+            response_format: { type: 'json_object' },
+            messages: [
+                { role: 'system', content: 'You are a strict English text classifier. Respond with JSON only.' },
+                { role: 'user', content: prompt }
+            ]
+        })
+    });
+
+    if (!response.ok) {
+        const message = await response.text().catch(() => '');
+        throw new Error(`DeepSeek classify failed: ${response.status} ${message}`.trim());
+    }
+
+    const payload = await response.json();
+    const parsed = parseJsonObject(extractMessageText(payload));
+    const list = parsed && Array.isArray(parsed.classifications) ? parsed.classifications : [];
+    const allowed = new Set(['word', 'phrase', 'sentence']);
+    const byIndex = new Map();
+    list.forEach(entry => {
+        const idx = Number(entry && entry.index);
+        const type = String(entry && entry.type || '').toLowerCase();
+        if (Number.isFinite(idx) && allowed.has(type)) byIndex.set(idx, type);
+    });
+    return items.map((_, i) => byIndex.get(i + 1) || null);
+}
+
+router.post('/ai-classify', async (req, res) => {
+    try {
+        const items = Array.isArray(req.body && req.body.items) ? req.body.items : [];
+        const cleaned = items
+            .map(it => ({ en: String(it && it.en || '').trim(), cn: String(it && it.cn || '').trim() }))
+            .filter(it => it.en);
+
+        if (cleaned.length === 0) {
+            return res.status(400).json({ error: 'items is required' });
+        }
+
+        if (!getDeepSeekConfig()) {
+            return res.status(503).json({ error: 'DeepSeek not configured' });
+        }
+
+        if (cleaned.length > 200) {
+            return res.status(413).json({ error: 'Too many items (max 200)' });
+        }
+
+        const types = await callDeepSeekClassify(cleaned);
+        if (!types) {
+            return res.status(503).json({ error: 'DeepSeek not configured' });
+        }
+
+        return res.json({
+            provider: 'deepseek',
+            classifications: cleaned.map((it, i) => ({
+                index: i + 1,
+                en: it.en,
+                type: types[i] || null
+            }))
+        });
+    } catch (err) {
+        console.warn('[ocr-ai] classify failed:', err.message);
+        return res.status(500).json({ error: 'AI classify failed' });
+    }
+});
+
 module.exports = router;

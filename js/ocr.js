@@ -701,6 +701,72 @@ const ImageOCR = (() => {
         return !!aiResult && ['words', 'phrases', 'sentences'].some(type => Array.isArray(aiResult[type]) && aiResult[type].length > 0);
     }
 
+    // ========== DeepSeek post-classification ==========
+    // After OCR + parsing produces a tentative split, ask DeepSeek to
+    // re-classify each item into word/phrase/sentence. Items are sent
+    // in the order they appear in the recognized data, and the buckets
+    // are rebuilt preserving that original (image numbering) order.
+    function collectRecognizedItemsForClassification() {
+        const ordered = [];
+        ['words', 'phrases', 'sentences'].forEach(type => {
+            (recognizedData[type] || []).forEach((item, idx) => {
+                if (!item || !item.en) return;
+                ordered.push({ originalType: type, originalIdx: idx, item });
+            });
+        });
+        // Sort: prefer source image index, then original section/index ordering.
+        ordered.sort((a, b) => {
+            const ai = a.item._sourceRef && Number.isFinite(a.item._sourceRef.index) ? a.item._sourceRef.index : 0;
+            const bi = b.item._sourceRef && Number.isFinite(b.item._sourceRef.index) ? b.item._sourceRef.index : 0;
+            if (ai !== bi) return ai - bi;
+            const sectionRank = { words: 0, phrases: 1, sentences: 2 };
+            if (sectionRank[a.originalType] !== sectionRank[b.originalType]) {
+                return sectionRank[a.originalType] - sectionRank[b.originalType];
+            }
+            return a.originalIdx - b.originalIdx;
+        });
+        return ordered;
+    }
+
+    async function reclassifyRecognizedDataWithDeepSeek() {
+        const ordered = collectRecognizedItemsForClassification();
+        if (ordered.length === 0) return;
+
+        const payload = {
+            items: ordered.map(entry => ({ en: entry.item.en, cn: entry.item.cn || '' }))
+        };
+
+        const response = await fetch('/api/ocr/ai-classify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            // 503 = not configured (no DEEPSEEK_API_KEY); skip silently.
+            if (response.status === 503) return;
+            throw new Error(`classify HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const list = Array.isArray(data && data.classifications) ? data.classifications : [];
+        if (list.length === 0) return;
+
+        const typeMap = { word: 'words', phrase: 'phrases', sentence: 'sentences' };
+        const buckets = { words: [], phrases: [], sentences: [] };
+        ordered.forEach((entry, i) => {
+            const cls = list[i];
+            const target = (cls && typeMap[String(cls.type || '').toLowerCase()]) || entry.originalType;
+            buckets[target].push(entry.item);
+        });
+
+        recognizedData.words = buckets.words;
+        recognizedData.phrases = buckets.phrases;
+        recognizedData.sentences = buckets.sentences;
+        console.log('[OCR] DeepSeek classified', ordered.length, 'items →',
+            `words=${buckets.words.length} phrases=${buckets.phrases.length} sentences=${buckets.sentences.length}`);
+    }
+
     function parseOcrTextToRecognizedData(rawText, baseData, parseHint = {}) {
         const snapshot = recognizedData;
         recognizedData = createParseSeed(baseData);
@@ -1391,6 +1457,17 @@ const ImageOCR = (() => {
             }
 
             console.log('[OCR] Raw text:', recognizedData.raw);
+
+            // DeepSeek re-classification: ask LLM to re-bucket items into
+            // words / phrases / sentences while preserving the original
+            // image numbering order. Falls back silently if not configured.
+            try {
+                statusEl.textContent = '正在用 DeepSeek 智能分类... Reclassifying with DeepSeek...';
+                await reclassifyRecognizedDataWithDeepSeek();
+            } catch (e) {
+                console.warn('[OCR] DeepSeek classification skipped:', e && e.message);
+            }
+
             autoTranslateAll();
 
             const totalItems = recognizedData.words.length + recognizedData.phrases.length + recognizedData.sentences.length;
