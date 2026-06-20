@@ -1251,37 +1251,46 @@ const App = (() => {
         }
     }
 
-    // Render the admin's saved standard units (mirrors My Homework saved-units list)
-    async function renderMaterialUnits() {
-        const container = document.getElementById('material-saved-list');
-        if (!container) return;
-        if (!AuthUI.isLoggedIn()) {
-            container.innerHTML = '<p class="empty-hint">请先登录 Please login</p>';
-            return;
+    // Toggle the admin-only upload UI vs the student "public library" view.
+    function setMaterialAdminUI(admin) {
+        const adminArea = document.getElementById('material-admin-area');
+        if (adminArea) adminArea.style.display = admin ? '' : 'none';
+        const adminInstr = document.getElementById('material-admin-instructions');
+        if (adminInstr) adminInstr.style.display = admin ? '' : 'none';
+        const studentHint = document.getElementById('material-student-hint');
+        if (studentHint) studentHint.style.display = admin ? 'none' : '';
+        const listTitle = document.getElementById('material-list-title');
+        if (listTitle) {
+            listTitle.textContent = admin
+                ? '📂 已保存的标准单元 Saved Standard Units'
+                : '📚 老师公开的标准词库 Teacher Public Library';
         }
-        container.innerHTML = '<p class="empty-hint">加载中... Loading...</p>';
-        try {
-            const res = await AuthUI.apiRequest('/units');
-            const data = await res.json();
-            materialUnits = data.myUnits || [];
-            if (materialUnits.length === 0) {
-                container.innerHTML = '<p class="empty-hint">暂无标准材料，请在下方上传生成 No standard material yet</p>';
-                return;
-            }
-            let html = '';
-            materialUnits.forEach(unit => {
-                const w = (unit.words || []).length;
-                const p = (unit.phrases || []).length;
-                const s = (unit.sentences || []).length;
-                const total = w + p + s;
-                const meta = [unit.publisher, unit.grade, unit.book, unit.unit_no ? ('Unit ' + unit.unit_no) : '']
-                    .filter(Boolean).map(escapeHtml).join(' · ');
-                const pub = unit.is_public
-                    ? '<span class="unit-badge unit-badge-public">🌍 公开</span>'
-                    : '<span class="unit-badge">🔒 私有</span>';
-                html += `<div class="saved-unit-card">
+        const pageTitle = document.getElementById('material-page-title');
+        if (pageTitle) {
+            pageTitle.textContent = admin
+                ? '🎓 老师标准单词句子文件上传 Teacher Standard Material'
+                : '🎓 老师标准词库 Teacher Standard Library';
+        }
+    }
+
+    function materialUnitCardHtml(unit, admin) {
+        const w = (unit.words || []).length;
+        const p = (unit.phrases || []).length;
+        const s = (unit.sentences || []).length;
+        const total = w + p + s;
+        const meta = [unit.publisher, unit.grade, unit.book, unit.unit_no ? ('Unit ' + unit.unit_no) : '']
+            .filter(Boolean).map(escapeHtml).join(' · ');
+        const badge = admin
+            ? (unit.is_public
+                ? '<span class="unit-badge unit-badge-public">🌍 公开</span>'
+                : '<span class="unit-badge">🔒 私有</span>')
+            : '<span class="unit-badge unit-badge-public">🎓 老师标准</span>';
+        const adminBtns = admin ? `
+                        <button class="btn btn-small btn-info" onclick="App.editMaterialUnit('${unit.id}')" title="修改编辑">✏️</button>
+                        <button class="btn btn-small btn-danger" onclick="App.deleteMaterialUnit('${unit.id}')" title="删除">🗑️</button>` : '';
+        return `<div class="saved-unit-card">
                     <div class="saved-unit-info">
-                        <h4>${escapeHtml(unit.name)} ${pub}</h4>
+                        <h4>${escapeHtml(unit.name)} ${badge}</h4>
                         ${meta ? `<p>${meta}</p>` : ''}
                         <p>📝 ${w}词 + ${p}词组 + ${s}句子 = ${total}项</p>
                     </div>
@@ -1289,12 +1298,35 @@ const App = (() => {
                         <button class="btn btn-small btn-primary" onclick="App.practiceMaterialUnit('${unit.id}','words')">单词</button>
                         <button class="btn btn-small btn-secondary" onclick="App.practiceMaterialUnit('${unit.id}','phrases')">词组</button>
                         <button class="btn btn-small btn-accent" onclick="App.practiceMaterialUnit('${unit.id}','sentences')">句子</button>
-                        <button class="btn btn-small btn-warning" onclick="App.practiceMaterialUnit('${unit.id}','listening')">听力</button>
-                        <button class="btn btn-small btn-info" onclick="App.editMaterialUnit('${unit.id}')" title="修改编辑">✏️</button>
-                        <button class="btn btn-small btn-danger" onclick="App.deleteMaterialUnit('${unit.id}')" title="删除">🗑️</button>
+                        <button class="btn btn-small btn-warning" onclick="App.practiceMaterialUnit('${unit.id}','listening')">听力</button>${adminBtns}
                     </div>
                 </div>`;
-            });
+    }
+
+    // Render standard units. Admins see/manage their own; normal users see the
+    // teacher's published (public) standard library with practice-only actions.
+    async function renderMaterialUnits() {
+        const container = document.getElementById('material-saved-list');
+        if (!container) return;
+        if (!AuthUI.isLoggedIn()) {
+            container.innerHTML = '<p class="empty-hint">请先登录 Please login</p>';
+            return;
+        }
+        const admin = AuthUI.isAdmin();
+        setMaterialAdminUI(admin);
+        container.innerHTML = '<p class="empty-hint">加载中... Loading...</p>';
+        try {
+            const res = await AuthUI.apiRequest('/units');
+            const data = await res.json();
+            materialUnits = admin ? (data.myUnits || []) : (data.publicUnits || []);
+            if (materialUnits.length === 0) {
+                container.innerHTML = admin
+                    ? '<p class="empty-hint">暂无标准材料，请在下方上传生成 No standard material yet</p>'
+                    : '<p class="empty-hint">老师还没有公开的标准词库 No public standard library yet</p>';
+                return;
+            }
+            let html = '';
+            materialUnits.forEach(unit => { html += materialUnitCardHtml(unit, admin); });
             container.innerHTML = html;
         } catch (e) {
             container.innerHTML = '<p class="empty-hint">加载失败 Load failed</p>';

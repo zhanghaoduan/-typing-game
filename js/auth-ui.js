@@ -208,7 +208,23 @@ const AuthUI = (() => {
 
         const materialCard = document.getElementById('home-material-card');
         if (materialCard) {
-            materialCard.style.display = isAdmin() ? 'flex' : 'none';
+            // Admins upload/manage; normal users practice the published library.
+            materialCard.style.display = currentUser ? 'flex' : 'none';
+            if (currentUser) {
+                const admin = isAdmin();
+                const h3 = materialCard.querySelector('h3');
+                const desc = materialCard.querySelector('p');
+                const cta = materialCard.querySelector('.home-hero-cta');
+                if (admin) {
+                    if (h3) h3.innerHTML = '老师标准单词句子文件上传 <span class="en">Teacher Standard Material</span>';
+                    if (desc) desc.textContent = '上传老师提供的 PDF / Word / Excel 标准文件 · 自动识别单元 / 单词 / 词组 / 句子，作为标准词库供学生练习';
+                    if (cta) cta.textContent = '📄 上传 / 管理 →';
+                } else {
+                    if (h3) h3.innerHTML = '老师标准词库 <span class="en">Teacher Standard Library</span>';
+                    if (desc) desc.textContent = '练习老师公开的标准单词 / 词组 / 句子 · 按单元反复练习与听写';
+                    if (cta) cta.textContent = '📚 开始练习 →';
+                }
+            }
         }
     }
 

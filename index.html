@@ -532,37 +532,42 @@
     <div id="page-material" class="page">
         <div class="page-header">
             <button class="btn-back" onclick="App.showPage('page-home')">← 返回</button>
-            <h2>🎓 老师标准单词句子文件上传 Teacher Standard Material</h2>
+            <h2 id="material-page-title">🎓 老师标准单词句子文件上传 Teacher Standard Material</h2>
         </div>
         <div class="upload-container">
-            <div class="upload-instructions">
+            <div class="upload-instructions" id="material-admin-instructions">
                 <p>📌 上传老师提供的标准材料（PDF / Word / Excel / CSV / TXT），系统会自动提取并智能生成单词 / 词组 / 句子，作为<strong>标准词库</strong>供学生练习。文件中已有中文翻译的以文件为准；没有翻译的将自动查询补全。</p>
                 <p>Upload teacher standard material. The system extracts and generates words / phrases / sentences as the standard library. File-provided translations are authoritative; missing ones are looked up automatically.</p>
                 <p class="upload-hint">例如 / e.g. <code>2025春七下新外研版英语单词默写纸答案Unit1-6.pdf</code></p>
             </div>
+            <div class="upload-instructions" id="material-student-hint" style="display:none;">
+                <p>📚 这里是老师公开的<strong>标准词库</strong>，点击下面任意单元即可练习单词 / 词组 / 句子，或进行听写测试。</p>
+                <p>This is the teacher's published standard library. Tap any unit below to practice words / phrases / sentences or take a listening test.</p>
+            </div>
 
             <!-- Saved Standard Units Section -->
             <div class="saved-units-section">
-                <h3>📂 已保存的标准单元 Saved Standard Units</h3>
+                <h3 id="material-list-title">📂 已保存的标准单元 Saved Standard Units</h3>
                 <div id="material-saved-list">
                     <p class="empty-hint">暂无标准材料，请在下方上传生成 No standard material yet</p>
                 </div>
             </div>
 
-            <hr class="upload-divider">
-
-            <!-- Upload Area -->
-            <h3>📤 上传标准文件 Upload Standard File</h3>
-            <div class="material-upload-row">
-                <input type="file" id="material-file-input"
-                       accept=".pdf,.doc,.docx,.xls,.xlsx,.xlsm,.csv,.txt"
-                       style="display:none;">
-                <button class="btn btn-outline" id="material-choose-btn" onclick="document.getElementById('material-file-input').click()">📁 选择文件 Choose File</button>
-                <span id="material-file-name" class="material-file-name">未选择文件 No file selected</span>
-                <button class="btn btn-primary" id="material-generate-btn" onclick="App.generateMaterial()" disabled>✨ 智能生成 Generate</button>
+            <!-- Upload Area (admin only) -->
+            <div id="material-admin-area">
+                <hr class="upload-divider">
+                <h3>📤 上传标准文件 Upload Standard File</h3>
+                <div class="material-upload-row">
+                    <input type="file" id="material-file-input"
+                           accept=".pdf,.doc,.docx,.xls,.xlsx,.xlsm,.csv,.txt"
+                           style="display:none;">
+                    <button class="btn btn-outline" id="material-choose-btn" onclick="document.getElementById('material-file-input').click()">📁 选择文件 Choose File</button>
+                    <span id="material-file-name" class="material-file-name">未选择文件 No file selected</span>
+                    <button class="btn btn-primary" id="material-generate-btn" onclick="App.generateMaterial()" disabled>✨ 智能生成 Generate</button>
+                </div>
+                <div id="material-status" class="material-status" style="display:none;"></div>
+                <div id="material-result" class="material-result" style="display:none;"></div>
             </div>
-            <div id="material-status" class="material-status" style="display:none;"></div>
-            <div id="material-result" class="material-result" style="display:none;"></div>
         </div>
     </div>
 
