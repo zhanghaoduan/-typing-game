@@ -451,6 +451,7 @@
                 <button class="admin-tab-btn active" data-admin-tab="units" onclick="App.showAdminTab('units')">📚 单元管理 Units</button>
                 <button class="admin-tab-btn" data-admin-tab="users" onclick="App.showAdminTab('users')">👥 用户管理 Users</button>
                 <button class="admin-tab-btn" data-admin-tab="rankings" onclick="App.showAdminTab('rankings')">🏆 排行榜 Rankings</button>
+                <button class="admin-tab-btn" data-admin-tab="material" onclick="App.showAdminTab('material')">🎓 智能录入 Smart Import</button>
             </div>
             <div id="admin-tab-units" class="admin-tab-content active">
                 <div class="admin-section">
@@ -480,6 +481,26 @@
                     <div id="admin-rankings-list">
                         <p class="empty-hint">加载中... Loading...</p>
                     </div>
+                </div>
+            </div>
+            <div id="admin-tab-material" class="admin-tab-content" style="display:none;">
+                <div class="admin-section">
+                    <h3>🎓 智能录入老师材料 Smart Material Import</h3>
+                    <p class="proofread-hint">
+                        上传老师提供的材料（PDF / Word / Excel / CSV / TXT），系统会自动提取并智能生成单词 / 词组 / 句子练习。<br>
+                        Upload teacher material (PDF / Word / Excel / CSV / TXT); the system extracts and generates word / phrase / sentence practice.<br>
+                        例如 / e.g. <code>2025春七下新外研版英语单词中译英Unit1.pdf</code>
+                    </p>
+                    <div class="material-upload-row">
+                        <input type="file" id="material-file-input"
+                               accept=".pdf,.doc,.docx,.xls,.xlsx,.xlsm,.csv,.txt"
+                               style="display:none;">
+                        <button class="btn btn-outline" id="material-choose-btn" onclick="document.getElementById('material-file-input').click()">📁 选择文件 Choose File</button>
+                        <span id="material-file-name" class="material-file-name">未选择文件 No file selected</span>
+                        <button class="btn btn-primary" id="material-generate-btn" onclick="App.generateMaterial()" disabled>✨ 智能生成 Generate</button>
+                    </div>
+                    <div id="material-status" class="material-status" style="display:none;"></div>
+                    <div id="material-result" class="material-result" style="display:none;"></div>
                 </div>
             </div>
         </div>

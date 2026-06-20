@@ -2004,3 +2004,76 @@ body.theme-dark .user-grade-badge { background: #334155; color: #fbbf24; }
     vertical-align: middle;
 }
 .dict-ex-speak:hover { opacity: 1; transform: scale(1.15); }
+
+/* ===== Admin: Smart Material Import ===== */
+.material-upload-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin: 12px 0;
+}
+.material-file-name {
+    color: var(--text-light, #6b7280);
+    font-size: 14px;
+    flex: 1 1 180px;
+    word-break: break-all;
+}
+.material-status {
+    margin: 10px 0;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 14px;
+    background: #eef2ff;
+    color: #3730a3;
+}
+.material-status-ok { background: #ecfdf5; color: #065f46; }
+.material-status-error { background: #fef2f2; color: #991b1b; }
+.material-result { margin-top: 14px; }
+.material-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin: 12px 0;
+}
+.material-meta-grid label {
+    display: flex;
+    flex-direction: column;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-light, #6b7280);
+    gap: 4px;
+}
+.material-meta-grid input {
+    padding: 8px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+}
+.material-cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+    margin: 10px 0;
+}
+.material-col h5 { margin: 0 0 6px; font-size: 14px; }
+.material-col textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: inherit;
+    resize: vertical;
+    line-height: 1.5;
+}
+.material-public-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 0;
+    font-size: 14px;
+}
+.material-actions { margin-top: 12px; }

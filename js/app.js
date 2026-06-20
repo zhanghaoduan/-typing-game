@@ -620,6 +620,7 @@ const App = (() => {
         if (tabName === 'units') renderAdminPanel();
         else if (tabName === 'users') renderAdminUsers();
         else if (tabName === 'rankings') renderAdminRankings('score');
+        else if (tabName === 'material') setupMaterialTab();
     }
 
     async function renderAdminUsers() {
@@ -730,9 +731,191 @@ const App = (() => {
         }
     }
 
+    // ============== ADMIN: SMART MATERIAL IMPORT ==============
+    let materialFile = null;
+    let materialUnit = null;
+    let materialBound = false;
+
+    function setupMaterialTab() {
+        const input = document.getElementById('material-file-input');
+        if (input && !materialBound) {
+            input.addEventListener('change', () => {
+                materialFile = input.files && input.files[0] ? input.files[0] : null;
+                const nameEl = document.getElementById('material-file-name');
+                const genBtn = document.getElementById('material-generate-btn');
+                if (nameEl) nameEl.textContent = materialFile ? materialFile.name : '未选择文件 No file selected';
+                if (genBtn) genBtn.disabled = !materialFile;
+                const result = document.getElementById('material-result');
+                if (result) { result.style.display = 'none'; result.innerHTML = ''; }
+                materialUnit = null;
+            });
+            materialBound = true;
+        }
+    }
+
+    function readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('文件读取失败 File read failed'));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    async function generateMaterial() {
+        if (!materialFile) { alert('请先选择文件 Please choose a file'); return; }
+        const statusEl = document.getElementById('material-status');
+        const resultEl = document.getElementById('material-result');
+        const genBtn = document.getElementById('material-generate-btn');
+        if (genBtn) genBtn.disabled = true;
+        if (resultEl) { resultEl.style.display = 'none'; resultEl.innerHTML = ''; }
+        if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.className = 'material-status';
+            statusEl.textContent = '正在提取并智能生成... Extracting & generating...';
+        }
+        try {
+            const dataUrl = await readFileAsDataUrl(materialFile);
+            const res = await AuthUI.apiRequest('/material/generate', {
+                method: 'POST',
+                body: JSON.stringify({
+                    fileName: materialFile.name,
+                    mimeType: materialFile.type || '',
+                    fileData: dataUrl
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                if (statusEl) {
+                    statusEl.className = 'material-status material-status-error';
+                    statusEl.textContent = '❌ ' + (data.error || '生成失败 Generation failed');
+                }
+                return;
+            }
+            materialUnit = data.unit;
+            const provider = data.provider === 'heuristic' ? '本地规则 (未配置AI)' : data.provider;
+            if (statusEl) {
+                statusEl.className = 'material-status material-status-ok';
+                statusEl.textContent = `✅ 生成完成（来源: ${provider}，提取字符: ${data.charCount}）。请校对后保存。`;
+            }
+            renderMaterialResult(materialUnit);
+        } catch (e) {
+            if (statusEl) {
+                statusEl.className = 'material-status material-status-error';
+                statusEl.textContent = '❌ ' + (e.message || '生成失败 Generation failed');
+            }
+        } finally {
+            if (genBtn) genBtn.disabled = false;
+        }
+    }
+
+    function itemsToText(items) {
+        return (items || []).map(it => {
+            const en = (it && it.en) || '';
+            const cn = (it && it.cn) || '';
+            return cn ? `${en} | ${cn}` : en;
+        }).join('\n');
+    }
+
+    function textToItems(text) {
+        return String(text || '')
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(Boolean)
+            .map(line => {
+                const idx = line.indexOf('|');
+                if (idx === -1) return { en: line.trim(), cn: '' };
+                return { en: line.slice(0, idx).trim(), cn: line.slice(idx + 1).trim() };
+            })
+            .filter(it => it.en);
+    }
+
+    function renderMaterialResult(unit) {
+        const el = document.getElementById('material-result');
+        if (!el) return;
+        const u = unit || {};
+        el.style.display = 'block';
+        el.innerHTML = `
+            <h4>✏️ 校对生成结果 Proofread (格式：英文 | 中文，每行一条)</h4>
+            <div class="material-meta-grid">
+                <label>单元名 Name<input id="material-name" type="text" value="${escapeHtml(u.name || '')}"></label>
+                <label>出版社 Publisher<input id="material-publisher" type="text" value="${escapeHtml(u.publisher || '')}"></label>
+                <label>年级 Grade<input id="material-grade" type="text" value="${escapeHtml(u.grade || '')}"></label>
+                <label>册 Book<input id="material-book" type="text" value="${escapeHtml(u.book || '')}"></label>
+                <label>单元号 Unit No<input id="material-unitno" type="number" value="${parseInt(u.unit_no, 10) || 0}"></label>
+            </div>
+            <div class="material-cols">
+                <div class="material-col">
+                    <h5>📝 单词 Words (${(u.words || []).length})</h5>
+                    <textarea id="material-words" rows="10">${escapeHtml(itemsToText(u.words))}</textarea>
+                </div>
+                <div class="material-col">
+                    <h5>🔗 词组 Phrases (${(u.phrases || []).length})</h5>
+                    <textarea id="material-phrases" rows="10">${escapeHtml(itemsToText(u.phrases))}</textarea>
+                </div>
+                <div class="material-col">
+                    <h5>📖 句子 Sentences (${(u.sentences || []).length})</h5>
+                    <textarea id="material-sentences" rows="10">${escapeHtml(itemsToText(u.sentences))}</textarea>
+                </div>
+            </div>
+            <label class="material-public-row">
+                <input type="checkbox" id="material-public" checked> 保存后设为公开（所有学生可练习）Publish to public library
+            </label>
+            <div class="material-actions">
+                <button class="btn btn-primary" onclick="App.saveMaterialUnit()">💾 保存为练习单元 Save as Unit</button>
+            </div>
+        `;
+    }
+
+    async function saveMaterialUnit() {
+        const words = textToItems(document.getElementById('material-words').value);
+        const phrases = textToItems(document.getElementById('material-phrases').value);
+        const sentences = textToItems(document.getElementById('material-sentences').value);
+        const name = (document.getElementById('material-name').value || '').trim();
+        const publisher = (document.getElementById('material-publisher').value || '').trim();
+        const grade = (document.getElementById('material-grade').value || '').trim();
+        const book = (document.getElementById('material-book').value || '').trim();
+        const unit_no = parseInt(document.getElementById('material-unitno').value, 10) || 0;
+        const makePublic = document.getElementById('material-public').checked;
+
+        if (!name) { alert('请填写单元名 Please enter a unit name'); return; }
+        if (words.length + phrases.length + sentences.length === 0) {
+            alert('没有内容可保存 No content to save'); return;
+        }
+
+        try {
+            const res = await AuthUI.apiRequest('/units', {
+                method: 'POST',
+                body: JSON.stringify({ name, words, phrases, sentences, publisher, grade, book, unit_no })
+            });
+            const data = await res.json();
+            if (!res.ok) { alert(data.error || '保存失败 Save failed'); return; }
+
+            if (makePublic && data.id) {
+                await AuthUI.apiRequest(`/units/admin/toggle-public/${data.id}`, { method: 'POST' });
+            }
+            alert(`✅ 已保存 "${name}"\n单词: ${words.length} | 词组: ${phrases.length} | 句子: ${sentences.length}` +
+                  (makePublic ? '\n已设为公开 Published as public' : ''));
+
+            // Reset UI and refresh units list
+            const result = document.getElementById('material-result');
+            if (result) { result.style.display = 'none'; result.innerHTML = ''; }
+            const statusEl = document.getElementById('material-status');
+            if (statusEl) statusEl.style.display = 'none';
+            const input = document.getElementById('material-file-input');
+            if (input) input.value = '';
+            materialFile = null;
+            materialUnit = null;
+            const nameEl = document.getElementById('material-file-name');
+            if (nameEl) nameEl.textContent = '未选择文件 No file selected';
+            const genBtn = document.getElementById('material-generate-btn');
+            if (genBtn) genBtn.disabled = true;
+        } catch (e) {
+            alert('保存失败 Save failed');
+        }
+    }
+
     return {
-        init,
-        showPage,
         updateHomeStats,
         renderReview,
         setTheme,
@@ -746,6 +929,8 @@ const App = (() => {
         adminResetPassword,
         adminDeleteUser,
         renderAdminRankings,
+        generateMaterial,
+        saveMaterialUnit,
         startDictationDue,
         startDictationWrongbook,
         startDictationNew,

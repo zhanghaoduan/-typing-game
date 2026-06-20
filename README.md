@@ -193,3 +193,23 @@ Web Speech API 语音合成兼容性：
   - `DEEPSEEK_MODEL`（可选，默认 `deepseek-chat`）
   - `DEEPSEEK_BASE_URL`（可选，默认 `https://api.deepseek.com/chat/completions`）
 - 未配置时前端会跳过分类步骤，沿用原有 OCR/AI 解析结果，不影响其他功能。
+
+## 🎓 管理员智能录入（PDF / Word / Excel 等材料）
+
+管理面板新增「🎓 智能录入 Smart Import」标签，仅管理员可见，用于上传老师提供的各类材料并智能生成练习单元。
+
+- 支持的文件类型：`.pdf`、`.docx`、`.xls` / `.xlsx`、`.csv`、`.txt`（旧版 `.doc` 请另存为 `.docx`）。
+- 上传后服务端会自动提取文字，并智能拆分为「单词 / 词组 / 句子」三类，同时给出中文释义；可在保存前校对编辑。
+- 文件名会作为提示，自动识别出版社、年级、册别、单元号。例如 `2025春七下新外研版英语单词中译英Unit1.pdf` → 外研版 / 七年级下 / 下册 / Unit 1。
+- 保存即生成可反复练习的单元，可勾选「设为公开」让所有学生在作业本中练习。
+
+### 依赖与配置
+
+- 服务端依赖：`pdf-parse`、`mammoth`、`xlsx`（已加入 `server/package.json`，部署时运行 `npm install` 即可）。
+- 智能拆分优先调用大模型（按以下顺序复用环境变量）：
+  - `DEEPSEEK_API_KEY`（可选 `DEEPSEEK_MODEL`、`DEEPSEEK_BASE_URL`）
+  - `OPENAI_API_KEY`（可选 `OPENAI_MODEL`、`OPENAI_BASE_URL`）
+  - `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_DEPLOYMENT`
+  - `DASHSCOPE_API_KEY` / `GITHUB_TOKEN` + `GITHUB_MODELS_MODEL` / `OCR_VISION_API_KEY` + `OCR_VISION_MODEL`
+- 未配置任何模型时，会自动回退到本地规则解析（按行拆分、识别英文/中文并按结构分类），功能仍可用。
+- 纯图片扫描的 PDF（无可选中文字）无法提取文字，请使用「📚 我的作业本」的图片 OCR 功能。
