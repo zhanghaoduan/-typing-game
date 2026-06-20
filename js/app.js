@@ -919,7 +919,15 @@ const App = (() => {
         const badge = std
             ? '<span class="material-std-badge" title="教师提供的标准翻译">教师标准</span>'
             : '';
-        return `<div class="proofread-item" data-uidx="${uidx}" data-type="${type}" data-idx="${idx}">
+        const refEn = (item && item.en) || '';
+        const refCn = (item && item.cn) || '';
+        // The reference line shows the ORIGINAL file value so the admin can
+        // compare while editing (revealed on focus via CSS :focus-within).
+        const refLine = (refEn || refCn)
+            ? `<div class="material-ref">📄 原文 Original：<b>${escapeHtml(refEn)}</b>${refCn ? ' = ' + escapeHtml(refCn) : ''}${std ? ' <span class="material-ref-tag">教师标准</span>' : ''}</div>`
+            : '';
+        return `<div class="proofread-item" data-uidx="${uidx}" data-type="${type}" data-idx="${idx}"
+                 data-std="${std ? '1' : '0'}" data-ref-en="${escapeHtml(refEn)}" data-ref-cn="${escapeHtml(refCn)}">
             <span class="proofread-num">${idx + 1}.</span>
             <input type="text" class="proofread-en mat-en" value="${escapeHtml(item.en || '')}"
                    placeholder="English" data-uidx="${uidx}" data-type="${type}">
@@ -927,6 +935,17 @@ const App = (() => {
                    placeholder="中文释义" data-uidx="${uidx}" data-type="${type}">
             ${badge}
             <button class="btn-icon btn-delete" onclick="App.removeMaterialRow(this)" title="删除">✕</button>
+            ${refLine}
+        </div>`;
+    }
+
+    function buildMaterialMeta(uidx, u) {
+        return `<div class="material-meta-grid">
+            <label>单元名 Name<input id="mat-${uidx}-name" type="text" value="${escapeHtml(u.name || '')}"></label>
+            <label>出版社 Publisher<input id="mat-${uidx}-publisher" type="text" value="${escapeHtml(u.publisher || '')}"></label>
+            <label>年级 Grade<input id="mat-${uidx}-grade" type="text" value="${escapeHtml(u.grade || '')}"></label>
+            <label>册 Book<input id="mat-${uidx}-book" type="text" value="${escapeHtml(u.book || '')}"></label>
+            <label>单元号 Unit No<input id="mat-${uidx}-unitno" type="number" value="${parseInt(u.unit_no, 10) || 0}"></label>
         </div>`;
     }
 
@@ -936,7 +955,7 @@ const App = (() => {
         return `<div class="proofread-section" data-type="${type}">
             <div class="proofread-section-header">
                 <h5>${title} (${(items || []).length})</h5>
-                <button class="btn btn-small btn-outline" onclick="App.addMaterialRow(${uidx}, '${type}')">➕ 添加 Add</button>
+                <button class="btn btn-small btn-outline" onclick="App.addMaterialRow('${uidx}', '${type}')">➕ 添加 Add</button>
             </div>
             <div class="proofread-items" id="mat-${uidx}-${type}">${rows}</div>
         </div>`;
@@ -949,7 +968,7 @@ const App = (() => {
         let html = `
             <div class="material-multi-head">
                 <h4>✏️ 校对生成结果 · <span class="material-std-badge">教师标准材料</span>（共 ${units.length} 个单元）</h4>
-                <p class="material-hint">中文优先使用老师提供的标准翻译（标记“教师标准”）；老师未提供的则自动查询翻译，可手动修改。</p>
+                <p class="material-hint">中文优先使用老师提供的标准翻译（标记“教师标准”）；老师未提供的则自动查询翻译，可手动修改。点击某一项可对照原文。</p>
                 <label class="material-public-row">
                     <input type="checkbox" id="material-public-all" checked> 保存后设为公开（所有学生可练习）Publish to public library
                 </label>
@@ -960,22 +979,76 @@ const App = (() => {
         units.forEach((u, uidx) => {
             html += `
             <div class="material-unit-block" data-uidx="${uidx}">
-                <div class="material-meta-grid">
-                    <label>单元名 Name<input id="mat-${uidx}-name" type="text" value="${escapeHtml(u.name || '')}"></label>
-                    <label>出版社 Publisher<input id="mat-${uidx}-publisher" type="text" value="${escapeHtml(u.publisher || '')}"></label>
-                    <label>年级 Grade<input id="mat-${uidx}-grade" type="text" value="${escapeHtml(u.grade || '')}"></label>
-                    <label>册 Book<input id="mat-${uidx}-book" type="text" value="${escapeHtml(u.book || '')}"></label>
-                    <label>单元号 Unit No<input id="mat-${uidx}-unitno" type="number" value="${parseInt(u.unit_no, 10) || 0}"></label>
-                </div>
+                ${buildMaterialMeta(uidx, u)}
                 ${buildMaterialSection(uidx, 'words', '📝 单词 Words', u.words)}
                 ${buildMaterialSection(uidx, 'phrases', '🔗 词组 Phrases', u.phrases)}
                 ${buildMaterialSection(uidx, 'sentences', '📖 句子 Sentences', u.sentences)}
                 <div class="material-actions">
-                    <button class="btn btn-secondary btn-small" onclick="App.saveOneMaterialUnit(${uidx})">💾 保存此单元 Save This Unit</button>
+                    <button class="btn btn-secondary btn-small" onclick="App.saveOneMaterialUnit('${uidx}')">💾 保存此单元 Save This Unit</button>
                 </div>
             </div>`;
         });
         el.innerHTML = html;
+    }
+
+    // Edit an existing saved standard unit using the same per-row editor (image-2
+    // style) instead of the old textarea view, with original-value references.
+    function renderMaterialEditor(unit) {
+        const el = document.getElementById('material-result');
+        if (!el) return;
+        const u = unit || {};
+        const uidx = 'edit';
+        el.style.display = 'block';
+        el.innerHTML = `
+            <div class="material-multi-head">
+                <h4>✏️ 编辑标准单元 Edit Unit · <span class="material-std-badge">教师标准材料</span></h4>
+                <p class="material-hint">点击英文或中文输入框可对照下方“原文 Original”进行核对。修改后点击保存。</p>
+            </div>
+            <div class="material-unit-block" data-uidx="${uidx}">
+                ${buildMaterialMeta(uidx, u)}
+                ${buildMaterialSection(uidx, 'words', '📝 单词 Words', u.words)}
+                ${buildMaterialSection(uidx, 'phrases', '🔗 词组 Phrases', u.phrases)}
+                ${buildMaterialSection(uidx, 'sentences', '📖 句子 Sentences', u.sentences)}
+                <label class="material-public-row">
+                    <input type="checkbox" id="material-public-all" ${u.is_public ? 'checked' : ''}> 设为公开（所有学生可练习）Publish to public library
+                </label>
+                <div class="material-actions">
+                    <button class="btn btn-primary" onclick="App.saveMaterialEditedUnit()">💾 保存修改 Save Changes</button>
+                    <button class="btn btn-outline" onclick="App.cancelMaterialEdit()">取消 Cancel</button>
+                </div>
+            </div>`;
+    }
+
+    async function saveMaterialEditedUnit() {
+        if (!materialEditingUnit || !materialEditingUnit.id) { alert('未找到要编辑的单元'); return; }
+        const u = collectMaterialUnit('edit');
+        if (!u.name) { alert('请填写单元名 Please enter a unit name'); return; }
+        if (u.words.length + u.phrases.length + u.sentences.length === 0) {
+            alert('没有内容可保存 No content to save'); return;
+        }
+        const pubEl = document.getElementById('material-public-all');
+        const makePublic = pubEl ? pubEl.checked : false;
+        try {
+            const res = await AuthUI.apiRequest(`/units/${materialEditingUnit.id}`, {
+                method: 'PUT',
+                body: JSON.stringify(u)
+            });
+            const data = await res.json();
+            if (!res.ok) { alert(data.error || '保存失败 Save failed'); return; }
+            const currentlyPublic = !!materialEditingUnit.is_public;
+            if (makePublic !== currentlyPublic) {
+                await AuthUI.apiRequest(`/units/admin/toggle-public/${materialEditingUnit.id}`, { method: 'POST' });
+            }
+            alert(`✅ 已保存修改 "${u.name}"`);
+            materialEditingUnit = null;
+            const result = document.getElementById('material-result');
+            if (result) { result.style.display = 'none'; result.innerHTML = ''; }
+            const statusEl = document.getElementById('material-status');
+            if (statusEl) statusEl.style.display = 'none';
+            renderMaterialUnits();
+        } catch (e) {
+            alert('保存失败 Save failed');
+        }
     }
 
     function addMaterialRow(uidx, type) {
@@ -1007,7 +1080,11 @@ const App = (() => {
             block.querySelectorAll(`#mat-${uidx}-${type} .proofread-item`).forEach(row => {
                 const en = (row.querySelector('.mat-en').value || '').trim();
                 const cn = (row.querySelector('.mat-cn').value || '').trim();
-                if (en) items.push({ en, cn });
+                if (!en) return;
+                // Preserve the teacher-standard flag only when the Chinese still
+                // matches the file-provided original (an edited CN is no longer "standard").
+                const std = row.getAttribute('data-std') === '1' && cn === (row.getAttribute('data-ref-cn') || '');
+                items.push(std ? { en, cn, std: true } : { en, cn });
             });
             return items;
         };
@@ -1254,7 +1331,7 @@ const App = (() => {
         if (!unit) return;
         materialEditingUnit = unit;
         materialUnit = unit;
-        renderMaterialResult(unit);
+        renderMaterialEditor(unit);
         const statusEl = document.getElementById('material-status');
         if (statusEl) {
             statusEl.style.display = 'block';
@@ -1298,6 +1375,7 @@ const App = (() => {
         saveMaterialUnit,
         saveOneMaterialUnit,
         saveAllMaterialUnits,
+        saveMaterialEditedUnit,
         addMaterialRow,
         removeMaterialRow,
         renderMaterialUnits,

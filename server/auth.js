@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const db = require('./db');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'typing-game-secret-key-2024';
 
@@ -19,9 +20,24 @@ function authenticate(req, res, next) {
     }
 }
 
-// Middleware to check admin role
+// Middleware to check admin role.
+// The database is the source of truth for the role so that legacy tokens
+// (issued before the role claim existed) or recently-promoted admins are not
+// wrongly rejected. Falls back to the token claim if the lookup fails.
 function requireAdmin(req, res, next) {
-    if (req.user.role !== 'admin') {
+    let role = req.user && req.user.role;
+    try {
+        if (req.user && req.user.id != null) {
+            const row = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user.id);
+            if (row && row.role) {
+                role = row.role;
+                req.user.role = role; // keep request state in sync
+            }
+        }
+    } catch (_) {
+        // Ignore DB errors and fall back to the token claim.
+    }
+    if (role !== 'admin') {
         return res.status(403).json({ error: '需要管理员权限 Admin access required' });
     }
     next();

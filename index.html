@@ -16,9 +16,20 @@
             font-weight: 600; line-height: 1; padding: 3px 7px; border-radius: 10px;
             margin-left: 6px; white-space: nowrap; vertical-align: middle;
         }
-        .material-unit-block .proofread-item { align-items: center; }
+        .material-unit-block .proofread-item { align-items: center; flex-wrap: wrap; }
+        .material-ref {
+            display: none; width: 100%; margin: 4px 0 2px 34px; font-size: 12px;
+            color: #1a7f37; background: #f0f8f2; border-left: 3px solid #1a7f37;
+            padding: 4px 9px; border-radius: 4px; box-sizing: border-box;
+        }
+        .material-ref .material-ref-tag {
+            background: #1a7f37; color: #fff; font-size: 10px; padding: 1px 5px;
+            border-radius: 8px; margin-left: 4px;
+        }
+        .proofread-item:focus-within .material-ref { display: block; }
         body.dark-mode .material-unit-block { background: #2a2a2a; border-color: #444; }
         body.dark-mode .material-multi-head .material-hint { color: #aaa; }
+        body.dark-mode .material-ref { background: #173a26; color: #6fd99a; }
     </style>
 </head>
 <body>
