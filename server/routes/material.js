@@ -129,6 +129,7 @@ function deriveHintsFromFileName(fileName) {
 // providers reused from the same env vars as the OCR feature.
 // ---------------------------------------------------------------------------
 function getTextModelConfig() {
+    // DeepSeek is the preferred text provider for material structuring.
     if (process.env.DEEPSEEK_API_KEY) {
         return {
             provider: 'deepseek',
@@ -138,15 +139,21 @@ function getTextModelConfig() {
             authHeader: 'bearer'
         };
     }
-    if (process.env.OPENAI_API_KEY) {
+    // DashScope (Qwen) is the working fallback in this deployment (Azure OpenAI
+    // has no live deployment and api.openai.com is geo-blocked from the server).
+    if (process.env.DASHSCOPE_API_KEY) {
         return {
-            provider: 'openai',
-            apiKey: process.env.OPENAI_API_KEY,
-            model: process.env.OPENAI_MODEL || process.env.OPENAI_VISION_MODEL || 'gpt-4.1-mini',
-            url: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1/chat/completions',
+            provider: 'dashscope',
+            apiKey: process.env.DASHSCOPE_API_KEY,
+            model: process.env.DASHSCOPE_TEXT_MODEL || process.env.DASHSCOPE_VISION_MODEL || 'qwen-plus',
+            url: process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
             authHeader: 'bearer'
         };
     }
+    // Azure OpenAI is checked before the generic OPENAI_API_KEY branch: in this
+    // deployment OPENAI_API_KEY is sometimes set to the Azure key (which only
+    // works against the Azure endpoint), so preferring Azure when it is fully
+    // configured avoids a guaranteed 401 against api.openai.com.
     if (
         process.env.AZURE_OPENAI_ENDPOINT &&
         process.env.AZURE_OPENAI_API_KEY &&
@@ -162,12 +169,12 @@ function getTextModelConfig() {
             authHeader: 'api-key'
         };
     }
-    if (process.env.DASHSCOPE_API_KEY) {
+    if (process.env.OPENAI_API_KEY) {
         return {
-            provider: 'dashscope',
-            apiKey: process.env.DASHSCOPE_API_KEY,
-            model: process.env.DASHSCOPE_TEXT_MODEL || process.env.DASHSCOPE_VISION_MODEL || 'qwen-plus',
-            url: process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+            provider: 'openai',
+            apiKey: process.env.OPENAI_API_KEY,
+            model: process.env.OPENAI_MODEL || process.env.OPENAI_VISION_MODEL || 'gpt-4.1-mini',
+            url: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1/chat/completions',
             authHeader: 'bearer'
         };
     }

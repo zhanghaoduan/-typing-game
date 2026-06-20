@@ -8,3 +8,6 @@ server/data/
 server/srv.pid
 server/dict/*.json
 server/dict/*.db
+
+.env
+server/.env
