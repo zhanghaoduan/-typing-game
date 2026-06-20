@@ -916,6 +916,8 @@ const App = (() => {
     }
 
     return {
+        init,
+        showPage,
         updateHomeStats,
         renderReview,
         setTheme,
