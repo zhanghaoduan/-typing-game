@@ -3334,6 +3334,7 @@ const ImageOCR = (() => {
         editServerUnit,
         deleteServerUnit,
         setSortMode,
-        setGradeFilter
+        setGradeFilter,
+        autoTranslate
     };
 })();

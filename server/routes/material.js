@@ -296,6 +296,128 @@ function buildGeneratePrompt(rawText, hints) {
     ].filter(Boolean).join('\n');
 }
 
+// Per-unit prompt. Unlike buildGeneratePrompt this targets ONE unit block and,
+// crucially, instructs the model to ONLY copy a Chinese meaning when the source
+// text actually provides one (so the frontend can fall back to its own lookup
+// for items the teacher left untranslated).
+function buildUnitPrompt(blockText, unitHints) {
+    const hintLines = [
+        unitHints.name ? `Unit name hint: ${unitHints.name}` : '',
+        unitHints.unit_no ? `Unit number: ${unitHints.unit_no}` : '',
+        unitHints.publisher ? `Publisher: ${unitHints.publisher}` : '',
+        unitHints.grade ? `Grade: ${unitHints.grade}` : ''
+    ].filter(Boolean).join('\n');
+
+    return [
+        'You convert the raw text of ONE unit from a Chinese English-textbook material into typing-practice data.',
+        'The text rows are usually "<index> <English> <Chinese>" (the Chinese often carries a part-of-speech prefix such as n./adj./v./adv./pron./prep./conj.).',
+        'Classify every English item as exactly one of:',
+        '  - word     : a single English word (a hyphenated word counts as one).',
+        '  - phrase   : a fixed expression of 2-7 words that is NOT a complete sentence.',
+        '  - sentence : a complete English sentence (subject + verb), usually ending with . ? or !',
+        'For "cn": copy the Chinese meaning EXACTLY as it appears in the source (keep the n./adj./v. prefix).',
+        'IMPORTANT: If the source provides NO Chinese for an item, set "cn" to an empty string "". Do NOT translate it yourself.',
+        'Remove the leading index number, the "UnitN" header, page headers and noise. Do not invent items that are not in the text. Do not drop any item.',
+        'Return ONLY JSON in this exact shape (no metadata needed):',
+        '{"words":[{"en":"","cn":""}],"phrases":[{"en":"","cn":""}],"sentences":[{"en":"","cn":""}]}',
+        '',
+        hintLines,
+        '',
+        'Raw unit text:',
+        '"""',
+        String(blockText || '').slice(0, MAX_TEXT_CHARS),
+        '"""'
+    ].filter(Boolean).join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Multi-unit splitting. A single teacher file (e.g. "...Unit1-6.pdf") usually
+// contains several units separated by "UnitN <Title>" headers. We split on
+// those headers so each unit can be structured independently (keeping each LLM
+// call small enough to avoid output-token truncation that dropped later units).
+// ---------------------------------------------------------------------------
+function cleanUnitTitle(s) {
+    let t = String(s || '');
+    const nl = t.search(/[\r\n]/);
+    if (nl >= 0) t = t.slice(0, nl);          // title lives on the header line
+    t = t.replace(/\s+/g, ' ').trim();
+    const d = t.search(/\d/);                  // stop before the first 序号 digit
+    if (d >= 0) t = t.slice(0, d);
+    return t.replace(/[\s:：.\-]+$/, '').trim();
+}
+
+function splitIntoUnitBlocks(rawText, hints) {
+    const text = String(rawText || '');
+    const re = /\bUnit\s*(\d{1,2})\b/gi;
+    const marks = [];
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        marks.push({ index: m.index, after: m.index + m[0].length, unit_no: parseInt(m[1], 10) || 0 });
+    }
+    if (marks.length === 0) {
+        return [{ unit_no: hints.unit_no || 0, title: '', text }];
+    }
+    const blocks = [];
+    for (let i = 0; i < marks.length; i++) {
+        const start = marks[i].index;
+        const end = i + 1 < marks.length ? marks[i + 1].index : text.length;
+        blocks.push({
+            unit_no: marks[i].unit_no,
+            title: cleanUnitTitle(text.slice(marks[i].after, end)),
+            text: text.slice(start, end)
+        });
+    }
+    // Merge adjacent blocks that share a unit number (header repeated per page).
+    const merged = [];
+    for (const b of blocks) {
+        const last = merged[merged.length - 1];
+        if (last && last.unit_no === b.unit_no) {
+            last.text += '\n' + b.text;
+            if (!last.title && b.title) last.title = b.title;
+        } else {
+            merged.push({ ...b });
+        }
+    }
+    return merged;
+}
+
+async function generateUnitFromBlock(block, hints) {
+    const unitHints = {
+        ...hints,
+        unit_no: block.unit_no || hints.unit_no || 0,
+        name: block.title ? `Unit${block.unit_no} ${block.title}`.trim() : (hints.name || '智能录入单元')
+    };
+
+    let generated = null;
+    let provider = 'heuristic';
+
+    if (getTextModelConfig()) {
+        try {
+            const llm = await callTextModel(
+                'You are a precise assistant that structures English learning materials and replies with JSON only.',
+                buildUnitPrompt(block.text, unitHints)
+            );
+            const parsed = llm && parseJsonObject(llm.text);
+            if (parsed) {
+                generated = sanitizeGenerated(parsed, unitHints);
+                provider = (llm && llm.provider) || 'llm';
+            }
+        } catch (err) {
+            console.warn('[material] unit LLM generation failed, falling back:', err.message);
+        }
+    }
+
+    if (!generated) {
+        generated = heuristicGenerate(block.text, unitHints);
+    }
+
+    // The detected header is authoritative for the unit name/number.
+    if (block.title) generated.name = `Unit${block.unit_no} ${block.title}`.trim();
+    if (block.unit_no) generated.unit_no = block.unit_no;
+    generated.teacherStandard = true;
+    return { unit: generated, provider };
+}
+
 // ---------------------------------------------------------------------------
 // Sanitizers
 // ---------------------------------------------------------------------------
@@ -324,8 +446,11 @@ function sanitizeItems(list) {
     const seen = new Set();
     return (Array.isArray(list) ? list : [])
         .map(item => {
-            if (typeof item === 'string') return { en: normalizeEn(item), cn: '' };
-            return { en: normalizeEn(item && item.en), cn: normalizeCn(item && item.cn) };
+            if (typeof item === 'string') return { en: normalizeEn(item), cn: '', std: false };
+            const cn = normalizeCn(item && item.cn);
+            // A non-empty Chinese translation that came straight from the source
+            // material is treated as the teacher's authoritative ("教师标准") meaning.
+            return { en: normalizeEn(item && item.en), cn, std: !!cn };
         })
         .filter(item => item.en && /[A-Za-z]{2,}/.test(item.en))
         .filter(item => {
@@ -447,41 +572,30 @@ router.post('/generate', async (req, res) => {
 
         const hints = deriveHintsFromFileName(fileName);
 
-        let generated = null;
-        let provider = 'heuristic';
+        // Split the file into per-unit blocks (handles "...Unit1-6.pdf" with 6 units)
+        // and structure each unit independently.
+        const blocks = splitIntoUnitBlocks(rawText, hints);
+        const results = await Promise.all(blocks.map(b => generateUnitFromBlock(b, hints)));
 
-        if (getTextModelConfig()) {
-            try {
-                const llm = await callTextModel(
-                    'You are a precise assistant that structures English learning materials and replies with JSON only.',
-                    buildGeneratePrompt(rawText, hints)
-                );
-                const parsed = llm && parseJsonObject(llm.text);
-                if (parsed) {
-                    generated = sanitizeGenerated(parsed, hints);
-                    provider = (llm && llm.provider) || 'llm';
-                }
-            } catch (err) {
-                console.warn('[material] LLM generation failed, falling back:', err.message);
-            }
-        }
+        const units = results
+            .map(r => r.unit)
+            .filter(u => (u.words.length + u.phrases.length + u.sentences.length) > 0);
 
-        if (!generated) {
-            generated = heuristicGenerate(rawText, hints);
-        }
-
-        const total = generated.words.length + generated.phrases.length + generated.sentences.length;
-        if (total === 0) {
+        if (units.length === 0) {
             return res.status(422).json({
                 error: '未能从文件中生成练习内容，请检查文件内容或换一份材料。'
             });
         }
 
+        const provider = (results.find(r => r.provider && r.provider !== 'heuristic') || results[0] || {}).provider || 'heuristic';
+
         return res.json({
             provider,
             fileType,
             charCount: rawText.length,
-            unit: generated
+            teacherStandard: true,
+            units,
+            unit: units[0] // backward compatibility for single-unit callers
         });
     } catch (err) {
         console.warn('[material] generate failed:', err.message);

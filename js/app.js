@@ -741,6 +741,7 @@ const App = (() => {
     let materialBound = false;
     let materialUnits = [];
     let materialEditingUnit = null;
+    let materialGenUnits = [];
 
     function setupMaterialTab() {
         const input = document.getElementById('material-file-input');
@@ -799,12 +800,29 @@ const App = (() => {
                 return;
             }
             materialUnit = data.unit;
+            const units = (Array.isArray(data.units) && data.units.length)
+                ? data.units
+                : (data.unit ? [data.unit] : []);
+            if (!units.length) {
+                if (statusEl) {
+                    statusEl.className = 'material-status material-status-error';
+                    statusEl.textContent = '❌ 未能识别到任何内容 No content recognized';
+                }
+                return;
+            }
+            // Teacher-provided Chinese is authoritative (教师标准); for items the
+            // teacher left untranslated, fall back to the same lookup My Homework uses.
+            units.forEach(fillMissingTranslations);
+            materialGenUnits = units;
+            materialEditingUnit = null;
             const provider = data.provider === 'heuristic' ? '本地规则 (未配置AI)' : data.provider;
+            const totalItems = units.reduce((n, u) =>
+                n + (u.words || []).length + (u.phrases || []).length + (u.sentences || []).length, 0);
             if (statusEl) {
                 statusEl.className = 'material-status material-status-ok';
-                statusEl.textContent = `✅ 生成完成（来源: ${provider}，提取字符: ${data.charCount}）。请校对后保存。`;
+                statusEl.textContent = `✅ 识别完成：${units.length} 个单元 / ${totalItems} 项（来源: ${provider}）。已标识为教师标准材料，请校对后保存。`;
             }
-            renderMaterialResult(materialUnit);
+            renderMaterialMultiResult(units);
         } catch (e) {
             if (statusEl) {
                 statusEl.className = 'material-status material-status-error';
@@ -872,6 +890,213 @@ const App = (() => {
                 ${materialEditingUnit ? '<button class="btn btn-outline" onclick="App.cancelMaterialEdit()">取消 Cancel</button>' : ''}
             </div>
         `;
+    }
+
+    // -----------------------------------------------------------------------
+    // Multi-unit teacher-material proofreading (image-2 style per-row editor)
+    // -----------------------------------------------------------------------
+
+    // Teacher CN is authoritative (教师标准). Items without CN fall back to the
+    // same dictionary lookup My Homework uses.
+    function fillMissingTranslations(unit) {
+        ['words', 'phrases', 'sentences'].forEach(type => {
+            (unit[type] || []).forEach(it => {
+                const cn = (it.cn || '').trim();
+                if (cn) {
+                    it.cn = cn;
+                    it.std = it.std !== false; // came from the file → teacher standard
+                } else {
+                    const t = (window.ImageOCR && ImageOCR.autoTranslate) ? ImageOCR.autoTranslate(it.en) : '';
+                    it.cn = t || '';
+                    it.std = false;
+                }
+            });
+        });
+    }
+
+    function buildMaterialRow(uidx, type, idx, item) {
+        const std = item && item.std;
+        const badge = std
+            ? '<span class="material-std-badge" title="教师提供的标准翻译">教师标准</span>'
+            : '';
+        return `<div class="proofread-item" data-uidx="${uidx}" data-type="${type}" data-idx="${idx}">
+            <span class="proofread-num">${idx + 1}.</span>
+            <input type="text" class="proofread-en mat-en" value="${escapeHtml(item.en || '')}"
+                   placeholder="English" data-uidx="${uidx}" data-type="${type}">
+            <input type="text" class="proofread-cn mat-cn" value="${escapeHtml(item.cn || '')}"
+                   placeholder="中文释义" data-uidx="${uidx}" data-type="${type}">
+            ${badge}
+            <button class="btn-icon btn-delete" onclick="App.removeMaterialRow(this)" title="删除">✕</button>
+        </div>`;
+    }
+
+    function buildMaterialSection(uidx, type, title, items) {
+        let rows = '';
+        (items || []).forEach((item, idx) => { rows += buildMaterialRow(uidx, type, idx, item); });
+        return `<div class="proofread-section" data-type="${type}">
+            <div class="proofread-section-header">
+                <h5>${title} (${(items || []).length})</h5>
+                <button class="btn btn-small btn-outline" onclick="App.addMaterialRow(${uidx}, '${type}')">➕ 添加 Add</button>
+            </div>
+            <div class="proofread-items" id="mat-${uidx}-${type}">${rows}</div>
+        </div>`;
+    }
+
+    function renderMaterialMultiResult(units) {
+        const el = document.getElementById('material-result');
+        if (!el) return;
+        el.style.display = 'block';
+        let html = `
+            <div class="material-multi-head">
+                <h4>✏️ 校对生成结果 · <span class="material-std-badge">教师标准材料</span>（共 ${units.length} 个单元）</h4>
+                <p class="material-hint">中文优先使用老师提供的标准翻译（标记“教师标准”）；老师未提供的则自动查询翻译，可手动修改。</p>
+                <label class="material-public-row">
+                    <input type="checkbox" id="material-public-all" checked> 保存后设为公开（所有学生可练习）Publish to public library
+                </label>
+                <div class="material-actions">
+                    <button class="btn btn-primary" onclick="App.saveAllMaterialUnits()">💾 保存全部为标准单元 Save All (${units.length})</button>
+                </div>
+            </div>`;
+        units.forEach((u, uidx) => {
+            html += `
+            <div class="material-unit-block" data-uidx="${uidx}">
+                <div class="material-meta-grid">
+                    <label>单元名 Name<input id="mat-${uidx}-name" type="text" value="${escapeHtml(u.name || '')}"></label>
+                    <label>出版社 Publisher<input id="mat-${uidx}-publisher" type="text" value="${escapeHtml(u.publisher || '')}"></label>
+                    <label>年级 Grade<input id="mat-${uidx}-grade" type="text" value="${escapeHtml(u.grade || '')}"></label>
+                    <label>册 Book<input id="mat-${uidx}-book" type="text" value="${escapeHtml(u.book || '')}"></label>
+                    <label>单元号 Unit No<input id="mat-${uidx}-unitno" type="number" value="${parseInt(u.unit_no, 10) || 0}"></label>
+                </div>
+                ${buildMaterialSection(uidx, 'words', '📝 单词 Words', u.words)}
+                ${buildMaterialSection(uidx, 'phrases', '🔗 词组 Phrases', u.phrases)}
+                ${buildMaterialSection(uidx, 'sentences', '📖 句子 Sentences', u.sentences)}
+                <div class="material-actions">
+                    <button class="btn btn-secondary btn-small" onclick="App.saveOneMaterialUnit(${uidx})">💾 保存此单元 Save This Unit</button>
+                </div>
+            </div>`;
+        });
+        el.innerHTML = html;
+    }
+
+    function addMaterialRow(uidx, type) {
+        const container = document.getElementById(`mat-${uidx}-${type}`);
+        if (!container) return;
+        const idx = container.querySelectorAll('.proofread-item').length;
+        const wrap = document.createElement('div');
+        wrap.innerHTML = buildMaterialRow(uidx, type, idx, { en: '', cn: '', std: false });
+        const row = wrap.firstElementChild;
+        container.appendChild(row);
+        const enInput = row.querySelector('.mat-en');
+        if (enInput) enInput.focus();
+    }
+
+    function removeMaterialRow(btn) {
+        const row = btn && btn.closest('.proofread-item');
+        if (row && row.parentElement) row.parentElement.removeChild(row);
+    }
+
+    function collectMaterialUnit(uidx) {
+        const val = id => {
+            const node = document.getElementById(id);
+            return node ? (node.value || '').trim() : '';
+        };
+        const collectType = type => {
+            const items = [];
+            const block = document.querySelector(`.material-unit-block[data-uidx="${uidx}"]`);
+            if (!block) return items;
+            block.querySelectorAll(`#mat-${uidx}-${type} .proofread-item`).forEach(row => {
+                const en = (row.querySelector('.mat-en').value || '').trim();
+                const cn = (row.querySelector('.mat-cn').value || '').trim();
+                if (en) items.push({ en, cn });
+            });
+            return items;
+        };
+        return {
+            name: val(`mat-${uidx}-name`),
+            publisher: val(`mat-${uidx}-publisher`),
+            grade: val(`mat-${uidx}-grade`),
+            book: val(`mat-${uidx}-book`),
+            unit_no: parseInt(val(`mat-${uidx}-unitno`), 10) || 0,
+            words: collectType('words'),
+            phrases: collectType('phrases'),
+            sentences: collectType('sentences')
+        };
+    }
+
+    async function persistMaterialUnit(payload, makePublic) {
+        const res = await AuthUI.apiRequest('/units', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '保存失败 Save failed');
+        if (makePublic && data.id) {
+            await AuthUI.apiRequest(`/units/admin/toggle-public/${data.id}`, { method: 'POST' });
+        }
+        return data.id;
+    }
+
+    async function saveOneMaterialUnit(uidx) {
+        const u = collectMaterialUnit(uidx);
+        if (!u.name) { alert('请填写单元名 Please enter a unit name'); return; }
+        if (u.words.length + u.phrases.length + u.sentences.length === 0) {
+            alert('没有内容可保存 No content to save'); return;
+        }
+        const pubEl = document.getElementById('material-public-all');
+        const makePublic = pubEl ? pubEl.checked : true;
+        try {
+            await persistMaterialUnit(u, makePublic);
+            alert(`✅ 已保存 "${u.name}"`);
+            const block = document.querySelector(`.material-unit-block[data-uidx="${uidx}"]`);
+            if (block) {
+                block.style.opacity = '0.5';
+                block.querySelectorAll('input, button').forEach(n => { n.disabled = true; });
+            }
+            renderMaterialUnits();
+        } catch (e) {
+            alert(e.message || '保存失败 Save failed');
+        }
+    }
+
+    async function saveAllMaterialUnits() {
+        const blocks = Array.from(document.querySelectorAll('.material-unit-block'))
+            .filter(b => b.style.opacity !== '0.5');
+        if (blocks.length === 0) { alert('没有可保存的单元 No units to save'); return; }
+        const pubEl = document.getElementById('material-public-all');
+        const makePublic = pubEl ? pubEl.checked : true;
+        let saved = 0;
+        const errors = [];
+        for (const block of blocks) {
+            const uidx = block.getAttribute('data-uidx');
+            const u = collectMaterialUnit(uidx);
+            if (!u.name) { errors.push(`单元 ${Number(uidx) + 1}: 缺少单元名`); continue; }
+            if (u.words.length + u.phrases.length + u.sentences.length === 0) continue;
+            try {
+                await persistMaterialUnit(u, makePublic);
+                saved++;
+                block.style.opacity = '0.5';
+                block.querySelectorAll('input, button').forEach(n => { n.disabled = true; });
+            } catch (e) {
+                errors.push(`单元 ${Number(uidx) + 1}: ${e.message || '保存失败'}`);
+            }
+        }
+        let msg = `✅ 已保存 ${saved} 个标准单元` + (makePublic ? '（已公开 Published）' : '');
+        if (errors.length) msg += `\n\n⚠️ ${errors.length} 个未保存:\n` + errors.join('\n');
+        alert(msg);
+        const statusEl = document.getElementById('material-status');
+        if (statusEl) statusEl.style.display = 'none';
+        if (saved > 0) {
+            const input = document.getElementById('material-file-input');
+            if (input) input.value = '';
+            materialFile = null;
+            const nameEl = document.getElementById('material-file-name');
+            if (nameEl) nameEl.textContent = '未选择文件 No file selected';
+            const genBtn = document.getElementById('material-generate-btn');
+            if (genBtn) genBtn.disabled = true;
+            const result = document.getElementById('material-result');
+            if (result) { result.style.display = 'none'; result.innerHTML = ''; }
+        }
+        renderMaterialUnits();
     }
 
     function cancelMaterialEdit() {
@@ -1071,6 +1296,10 @@ const App = (() => {
         renderAdminRankings,
         generateMaterial,
         saveMaterialUnit,
+        saveOneMaterialUnit,
+        saveAllMaterialUnits,
+        addMaterialRow,
+        removeMaterialRow,
         renderMaterialUnits,
         practiceMaterialUnit,
         editMaterialUnit,
