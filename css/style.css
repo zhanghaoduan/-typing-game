@@ -2077,3 +2077,47 @@ body.theme-dark .user-grade-badge { background: #334155; color: #fbbf24; }
     font-size: 14px;
 }
 .material-actions { margin-top: 12px; }
+
+/* ===== Responsive saved-unit cards (tidy on desktop, tablet & mobile) ===== */
+.saved-unit-card {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+}
+.saved-unit-info { min-width: 0; }
+.saved-unit-info h4 { overflow-wrap: anywhere; line-height: 1.35; }
+.saved-unit-actions {
+    width: 100%;
+    gap: 8px;
+}
+.saved-unit-actions .btn {
+    flex: 1 1 auto;
+    min-width: 64px;
+    text-align: center;
+    white-space: nowrap;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+/* Icon-only buttons (edit / delete) stay compact */
+.saved-unit-actions .btn-info,
+.saved-unit-actions .btn-danger {
+    flex: 0 0 auto;
+    min-width: 46px;
+}
+@media (max-width: 600px) {
+    .saved-unit-card { padding: 12px 14px; }
+    .saved-unit-actions .btn {
+        flex: 1 1 calc(25% - 6px);
+        min-width: 0;
+        font-size: 14px;
+        padding: 9px 4px;
+    }
+    .saved-unit-actions .btn-info,
+    .saved-unit-actions .btn-danger {
+        flex: 1 1 calc(25% - 6px);
+        min-width: 0;
+    }
+}
+@media (max-width: 380px) {
+    .saved-unit-actions .btn { flex: 1 1 calc(33.333% - 6px); }
+}
