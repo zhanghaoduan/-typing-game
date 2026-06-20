@@ -205,6 +205,11 @@ const AuthUI = (() => {
         if (adminBtn) {
             adminBtn.style.display = isAdmin() ? 'block' : 'none';
         }
+
+        const materialCard = document.getElementById('home-material-card');
+        if (materialCard) {
+            materialCard.style.display = isAdmin() ? 'flex' : 'none';
+        }
     }
 
     // Handle login form

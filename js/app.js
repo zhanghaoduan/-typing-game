@@ -58,6 +58,10 @@ const App = (() => {
         if (pageId === 'page-upload' && AuthUI.isLoggedIn()) {
             if (typeof ImageOCR !== 'undefined') ImageOCR.renderSavedUnits();
         }
+        if (pageId === 'page-material') {
+            setupMaterialTab();
+            renderMaterialUnits();
+        }
     }
 
     // Update home page statistics
@@ -735,6 +739,8 @@ const App = (() => {
     let materialFile = null;
     let materialUnit = null;
     let materialBound = false;
+    let materialUnits = [];
+    let materialEditingUnit = null;
 
     function setupMaterialTab() {
         const input = document.getElementById('material-file-input');
@@ -859,12 +865,21 @@ const App = (() => {
                 </div>
             </div>
             <label class="material-public-row">
-                <input type="checkbox" id="material-public" checked> 保存后设为公开（所有学生可练习）Publish to public library
+                <input type="checkbox" id="material-public" ${u.is_public === 0 ? '' : 'checked'}> 保存后设为公开（所有学生可练习）Publish to public library
             </label>
             <div class="material-actions">
-                <button class="btn btn-primary" onclick="App.saveMaterialUnit()">💾 保存为练习单元 Save as Unit</button>
+                <button class="btn btn-primary" onclick="App.saveMaterialUnit()">💾 ${materialEditingUnit ? '保存修改 Save Changes' : '保存为标准单元 Save as Unit'}</button>
+                ${materialEditingUnit ? '<button class="btn btn-outline" onclick="App.cancelMaterialEdit()">取消 Cancel</button>' : ''}
             </div>
         `;
+    }
+
+    function cancelMaterialEdit() {
+        materialEditingUnit = null;
+        const result = document.getElementById('material-result');
+        if (result) { result.style.display = 'none'; result.innerHTML = ''; }
+        const statusEl = document.getElementById('material-status');
+        if (statusEl) statusEl.style.display = 'none';
     }
 
     async function saveMaterialUnit() {
@@ -884,20 +899,38 @@ const App = (() => {
         }
 
         try {
-            const res = await AuthUI.apiRequest('/units', {
-                method: 'POST',
-                body: JSON.stringify({ name, words, phrases, sentences, publisher, grade, book, unit_no })
-            });
-            const data = await res.json();
-            if (!res.ok) { alert(data.error || '保存失败 Save failed'); return; }
-
-            if (makePublic && data.id) {
-                await AuthUI.apiRequest(`/units/admin/toggle-public/${data.id}`, { method: 'POST' });
+            let unitId;
+            if (materialEditingUnit && materialEditingUnit.id) {
+                // Update existing standard unit
+                const res = await AuthUI.apiRequest(`/units/${materialEditingUnit.id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ name, words, phrases, sentences, publisher, grade, book, unit_no })
+                });
+                const data = await res.json();
+                if (!res.ok) { alert(data.error || '保存失败 Save failed'); return; }
+                unitId = materialEditingUnit.id;
+                // Sync public state if changed
+                const currentlyPublic = !!materialEditingUnit.is_public;
+                if (makePublic !== currentlyPublic) {
+                    await AuthUI.apiRequest(`/units/admin/toggle-public/${unitId}`, { method: 'POST' });
+                }
+            } else {
+                const res = await AuthUI.apiRequest('/units', {
+                    method: 'POST',
+                    body: JSON.stringify({ name, words, phrases, sentences, publisher, grade, book, unit_no })
+                });
+                const data = await res.json();
+                if (!res.ok) { alert(data.error || '保存失败 Save failed'); return; }
+                unitId = data.id;
+                if (makePublic && unitId) {
+                    await AuthUI.apiRequest(`/units/admin/toggle-public/${unitId}`, { method: 'POST' });
+                }
             }
             alert(`✅ 已保存 "${name}"\n单词: ${words.length} | 词组: ${phrases.length} | 句子: ${sentences.length}` +
                   (makePublic ? '\n已设为公开 Published as public' : ''));
 
             // Reset UI and refresh units list
+            materialEditingUnit = null;
             const result = document.getElementById('material-result');
             if (result) { result.style.display = 'none'; result.innerHTML = ''; }
             const statusEl = document.getElementById('material-status');
@@ -910,8 +943,113 @@ const App = (() => {
             if (nameEl) nameEl.textContent = '未选择文件 No file selected';
             const genBtn = document.getElementById('material-generate-btn');
             if (genBtn) genBtn.disabled = true;
+            renderMaterialUnits();
         } catch (e) {
             alert('保存失败 Save failed');
+        }
+    }
+
+    // Render the admin's saved standard units (mirrors My Homework saved-units list)
+    async function renderMaterialUnits() {
+        const container = document.getElementById('material-saved-list');
+        if (!container) return;
+        if (!AuthUI.isLoggedIn()) {
+            container.innerHTML = '<p class="empty-hint">请先登录 Please login</p>';
+            return;
+        }
+        container.innerHTML = '<p class="empty-hint">加载中... Loading...</p>';
+        try {
+            const res = await AuthUI.apiRequest('/units');
+            const data = await res.json();
+            materialUnits = data.myUnits || [];
+            if (materialUnits.length === 0) {
+                container.innerHTML = '<p class="empty-hint">暂无标准材料，请在下方上传生成 No standard material yet</p>';
+                return;
+            }
+            let html = '';
+            materialUnits.forEach(unit => {
+                const w = (unit.words || []).length;
+                const p = (unit.phrases || []).length;
+                const s = (unit.sentences || []).length;
+                const total = w + p + s;
+                const meta = [unit.publisher, unit.grade, unit.book, unit.unit_no ? ('Unit ' + unit.unit_no) : '']
+                    .filter(Boolean).map(escapeHtml).join(' · ');
+                const pub = unit.is_public
+                    ? '<span class="unit-badge unit-badge-public">🌍 公开</span>'
+                    : '<span class="unit-badge">🔒 私有</span>';
+                html += `<div class="saved-unit-card">
+                    <div class="saved-unit-info">
+                        <h4>${escapeHtml(unit.name)} ${pub}</h4>
+                        ${meta ? `<p>${meta}</p>` : ''}
+                        <p>📝 ${w}词 + ${p}词组 + ${s}句子 = ${total}项</p>
+                    </div>
+                    <div class="saved-unit-actions">
+                        <button class="btn btn-small btn-primary" onclick="App.practiceMaterialUnit('${unit.id}','words')">单词</button>
+                        <button class="btn btn-small btn-secondary" onclick="App.practiceMaterialUnit('${unit.id}','phrases')">词组</button>
+                        <button class="btn btn-small btn-accent" onclick="App.practiceMaterialUnit('${unit.id}','sentences')">句子</button>
+                        <button class="btn btn-small btn-warning" onclick="App.practiceMaterialUnit('${unit.id}','listening')">听力</button>
+                        <button class="btn btn-small btn-info" onclick="App.editMaterialUnit('${unit.id}')" title="修改编辑">✏️</button>
+                        <button class="btn btn-small btn-danger" onclick="App.deleteMaterialUnit('${unit.id}')" title="删除">🗑️</button>
+                    </div>
+                </div>`;
+            });
+            container.innerHTML = html;
+        } catch (e) {
+            container.innerHTML = '<p class="empty-hint">加载失败 Load failed</p>';
+        }
+    }
+
+    function findMaterialUnit(id) {
+        return materialUnits.find(u => String(u.id) === String(id));
+    }
+
+    function practiceMaterialUnit(id, type) {
+        const unit = findMaterialUnit(id);
+        if (!unit) return;
+        let items = [];
+        if (type === 'words' || type === 'all' || type === 'listening') {
+            (unit.words || []).forEach(w => items.push({ type: 'word', en: w.en, cn: w.cn || '(自定义)', difficulty: w.difficulty || 1 }));
+        }
+        if (type === 'phrases' || type === 'all' || type === 'listening') {
+            (unit.phrases || []).forEach(p => items.push({ type: 'phrase', en: p.en, cn: p.cn || '(自定义)', difficulty: p.difficulty || 2 }));
+        }
+        if (type === 'sentences' || type === 'all') {
+            (unit.sentences || []).forEach(s => items.push({ type: 'sentence', en: s.en, cn: s.cn || '(自定义)', difficulty: s.difficulty || 3 }));
+        }
+        if (items.length === 0) { alert('该类别没有内容 No content in this category'); return; }
+        for (let i = items.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [items[i], items[j]] = [items[j], items[i]];
+        }
+        Game.startCustomPractice(items, type === 'listening' ? 'listening' : 'mixed');
+    }
+
+    function editMaterialUnit(id) {
+        const unit = findMaterialUnit(id);
+        if (!unit) return;
+        materialEditingUnit = unit;
+        materialUnit = unit;
+        renderMaterialResult(unit);
+        const statusEl = document.getElementById('material-status');
+        if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.className = 'material-status material-status-ok';
+            statusEl.textContent = `✏️ 正在编辑 "${unit.name}"，修改后点击保存。Editing — save to apply.`;
+        }
+        const result = document.getElementById('material-result');
+        if (result && result.scrollIntoView) result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    async function deleteMaterialUnit(id) {
+        const unit = findMaterialUnit(id);
+        if (!unit) return;
+        if (!confirm(`确定删除标准单元 "${unit.name}"？\nConfirm delete?`)) return;
+        try {
+            const res = await AuthUI.apiRequest(`/units/${id}`, { method: 'DELETE' });
+            if (!res.ok) { alert('删除失败 Delete failed'); return; }
+            renderMaterialUnits();
+        } catch (e) {
+            alert('删除失败 Delete failed');
         }
     }
 
@@ -933,6 +1071,11 @@ const App = (() => {
         renderAdminRankings,
         generateMaterial,
         saveMaterialUnit,
+        renderMaterialUnits,
+        practiceMaterialUnit,
+        editMaterialUnit,
+        deleteMaterialUnit,
+        cancelMaterialEdit,
         startDictationDue,
         startDictationWrongbook,
         startDictationNew,

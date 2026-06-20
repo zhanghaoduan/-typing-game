@@ -79,6 +79,16 @@
                     </div>
                 </a>
 
+                <!-- Hero card: Teacher Standard Material (admin only) -->
+                <a class="home-hero-card" id="home-material-card" style="display:none;" onclick="App.showPage('page-material')">
+                    <div class="home-hero-icon">🎓</div>
+                    <div class="home-hero-text">
+                        <h3>老师标准单词句子文件上传 <span class="en">Teacher Standard Material</span></h3>
+                        <p>上传老师提供的 PDF / Word / Excel 标准文件 · 自动识别单元 / 单词 / 词组 / 句子，作为标准词库供学生练习</p>
+                        <span class="home-hero-cta">📄 上传 / 管理 →</span>
+                    </div>
+                </a>
+
                 <!-- Game grid -->
                 <div class="home-section-title">🎮 练习游戏 Practice Games</div>
                 <div class="home-grid">
@@ -451,7 +461,7 @@
                 <button class="admin-tab-btn active" data-admin-tab="units" onclick="App.showAdminTab('units')">📚 单元管理 Units</button>
                 <button class="admin-tab-btn" data-admin-tab="users" onclick="App.showAdminTab('users')">👥 用户管理 Users</button>
                 <button class="admin-tab-btn" data-admin-tab="rankings" onclick="App.showAdminTab('rankings')">🏆 排行榜 Rankings</button>
-                <button class="admin-tab-btn" data-admin-tab="material" onclick="App.showAdminTab('material')">🎓 智能录入 Smart Import</button>
+                <button class="admin-tab-btn" data-admin-tab="material" onclick="App.showPage('page-material')">🎓 智能录入 Smart Import</button>
             </div>
             <div id="admin-tab-units" class="admin-tab-content active">
                 <div class="admin-section">
@@ -485,24 +495,48 @@
             </div>
             <div id="admin-tab-material" class="admin-tab-content" style="display:none;">
                 <div class="admin-section">
-                    <h3>🎓 智能录入老师材料 Smart Material Import</h3>
-                    <p class="proofread-hint">
-                        上传老师提供的材料（PDF / Word / Excel / CSV / TXT），系统会自动提取并智能生成单词 / 词组 / 句子练习。<br>
-                        Upload teacher material (PDF / Word / Excel / CSV / TXT); the system extracts and generates word / phrase / sentence practice.<br>
-                        例如 / e.g. <code>2025春七下新外研版英语单词中译英Unit1.pdf</code>
-                    </p>
-                    <div class="material-upload-row">
-                        <input type="file" id="material-file-input"
-                               accept=".pdf,.doc,.docx,.xls,.xlsx,.xlsm,.csv,.txt"
-                               style="display:none;">
-                        <button class="btn btn-outline" id="material-choose-btn" onclick="document.getElementById('material-file-input').click()">📁 选择文件 Choose File</button>
-                        <span id="material-file-name" class="material-file-name">未选择文件 No file selected</span>
-                        <button class="btn btn-primary" id="material-generate-btn" onclick="App.generateMaterial()" disabled>✨ 智能生成 Generate</button>
-                    </div>
-                    <div id="material-status" class="material-status" style="display:none;"></div>
-                    <div id="material-result" class="material-result" style="display:none;"></div>
+                    <p class="proofread-hint">该功能已移至首页「老师标准单词句子文件上传」入口。<br>This feature has moved to the home page entry "Teacher Standard Material".</p>
+                    <button class="btn btn-primary" onclick="App.showPage('page-material')">前往 老师标准材料 →</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- ========== TEACHER STANDARD MATERIAL PAGE ========== -->
+    <div id="page-material" class="page">
+        <div class="page-header">
+            <button class="btn-back" onclick="App.showPage('page-home')">← 返回</button>
+            <h2>🎓 老师标准单词句子文件上传 Teacher Standard Material</h2>
+        </div>
+        <div class="upload-container">
+            <div class="upload-instructions">
+                <p>📌 上传老师提供的标准材料（PDF / Word / Excel / CSV / TXT），系统会自动提取并智能生成单词 / 词组 / 句子，作为<strong>标准词库</strong>供学生练习。文件中已有中文翻译的以文件为准；没有翻译的将自动查询补全。</p>
+                <p>Upload teacher standard material. The system extracts and generates words / phrases / sentences as the standard library. File-provided translations are authoritative; missing ones are looked up automatically.</p>
+                <p class="upload-hint">例如 / e.g. <code>2025春七下新外研版英语单词默写纸答案Unit1-6.pdf</code></p>
+            </div>
+
+            <!-- Saved Standard Units Section -->
+            <div class="saved-units-section">
+                <h3>📂 已保存的标准单元 Saved Standard Units</h3>
+                <div id="material-saved-list">
+                    <p class="empty-hint">暂无标准材料，请在下方上传生成 No standard material yet</p>
+                </div>
+            </div>
+
+            <hr class="upload-divider">
+
+            <!-- Upload Area -->
+            <h3>📤 上传标准文件 Upload Standard File</h3>
+            <div class="material-upload-row">
+                <input type="file" id="material-file-input"
+                       accept=".pdf,.doc,.docx,.xls,.xlsx,.xlsm,.csv,.txt"
+                       style="display:none;">
+                <button class="btn btn-outline" id="material-choose-btn" onclick="document.getElementById('material-file-input').click()">📁 选择文件 Choose File</button>
+                <span id="material-file-name" class="material-file-name">未选择文件 No file selected</span>
+                <button class="btn btn-primary" id="material-generate-btn" onclick="App.generateMaterial()" disabled>✨ 智能生成 Generate</button>
+            </div>
+            <div id="material-status" class="material-status" style="display:none;"></div>
+            <div id="material-result" class="material-result" style="display:none;"></div>
         </div>
     </div>
 
