@@ -644,6 +644,7 @@ const ImageOCR = (() => {
         // Strong numbered sentence content should override a misleading file name,
         // but not explicit phrase/word signals recognized from the image itself.
         if (
+            !mixedSections &&
             !hasPhraseTitleSignal &&
             !hasWordTitleSignal &&
             !hasPhraseSignal &&
@@ -653,7 +654,7 @@ const ImageOCR = (() => {
             forceSection = 'sentences';
         }
 
-        if (!forceSection && numberedLines.length >= 3) {
+        if (!forceSection && !mixedSections && numberedLines.length >= 3) {
             const sentenceStarters = /^(i|we|you|he|she|it|they|this|that|these|those|my|our|his|her|their|tom|love|a|an|the|in|hard)\b/i;
             const fallbackSentenceLikeCount = numberedLines.filter(line => {
                 const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
@@ -1500,7 +1501,7 @@ const ImageOCR = (() => {
                 }
                 parsedData = rebalanceParsedSections(parsedData, parseHint);
                 parsedData = completeMixedSectionsFromFullOcr(parsedData, parseHint);
-                if (parseHint.forceSection === 'sentences') {
+                if (parseHint.forceSection === 'sentences' && !parseHint.mixedSections) {
                     lockRecognizedSection(parsedData, 'sentences');
                 }
                 attachSourceReference(parsedData, sourceRef);
