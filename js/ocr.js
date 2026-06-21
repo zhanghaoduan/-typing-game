@@ -2077,7 +2077,9 @@ const ImageOCR = (() => {
             recognizedData = cloneRecognizedData(aggregateData);
 
             csvImports.forEach((csvData) => {
-                csvData.words.forEach(word => addToSection(word, 'words'));
+                (csvData.words || []).forEach(item => addToSection(item.en || item, 'words', { forceSection: true, presetCn: item.cn || '' }));
+                (csvData.phrases || []).forEach(item => addToSection(item.en || item, 'phrases', { forceSection: true, presetCn: item.cn || '' }));
+                (csvData.sentences || []).forEach(item => addToSection(item.en || item, 'sentences', { forceSection: true, presetCn: item.cn || '' }));
                 if (!recognizedData.unitName && csvData.unitName) {
                     recognizedData.unitName = csvData.unitName;
                 }
@@ -2458,35 +2460,142 @@ const ImageOCR = (() => {
         return bestScore >= 6 ? { index: bestIndex, hasHeader } : { index: -1, hasHeader };
     }
 
+    function looksLikeFileArtifact(text) {
+        const value = String(text || '').trim();
+        if (!value) return false;
+        if (/^(data:image\/|https?:\/\/|www\.)/i.test(value)) return true;
+        if (/[\\/]/.test(value) && /\.(png|jpe?g|gif|bmp|webp|svg|csv|xlsx?)$/i.test(value)) return true;
+        if (/^[a-z0-9_-]+\.(png|jpe?g|gif|bmp|webp|svg)$/i.test(value)) return true;
+        return false;
+    }
+
+    function looksLikeChineseText(text) {
+        return /[\u4e00-\u9fff]/.test(String(text || ''));
+    }
+
+    function detectCsvSectionLabel(text) {
+        const normalized = String(text || '').trim().toLowerCase();
+        if (!normalized) return null;
+        if (/(^|[^a-z])(word|words|vocabulary|vocab)([^a-z]|$)|单词|词汇/.test(normalized)) return 'words';
+        if (/(^|[^a-z])(phrase|phrases)([^a-z]|$)|词组|短语/.test(normalized)) return 'phrases';
+        if (/(^|[^a-z])(sentence|sentences)([^a-z]|$)|句子|例句/.test(normalized)) return 'sentences';
+        return null;
+    }
+
+    function inferCsvSectionFromEnglish(text, fallbackSection = null) {
+        const cleaned = normalizeWordCandidate(String(text || '').trim());
+        if (!cleaned || looksLikeFileArtifact(cleaned)) return null;
+        const wc = countEnglishWords(cleaned);
+        if (wc <= 1) return 'words';
+        if (isSentence(cleaned) || wc >= 6) return 'sentences';
+        if (isLikelyPhraseCandidate(cleaned) || wc <= 5) return 'phrases';
+        return fallbackSection || 'phrases';
+    }
+
+    function buildCsvRowEntry(row, activeSection = null) {
+        const sectionFromRow = row.map(detectCsvSectionLabel).find(Boolean) || null;
+        const cells = row
+            .map(col => String(col || '').trim())
+            .filter(Boolean)
+            .filter(col => !looksLikeFileArtifact(col));
+        if (!cells.length) return { section: sectionFromRow || activeSection || null, item: null };
+
+        const englishCandidates = cells
+            .filter(col => looksLikeEnglishText(col))
+            .map(col => normalizeWordCandidate(col))
+            .filter(Boolean)
+            .filter(col => !looksLikeFileArtifact(col));
+        const chineseCandidates = cells
+            .filter(col => looksLikeChineseText(col))
+            .map(col => String(col || '').trim())
+            .filter(Boolean);
+
+        const english = englishCandidates.sort((a, b) => countEnglishWords(b) - countEnglishWords(a))[0] || '';
+        if (!english) {
+            return { section: sectionFromRow || activeSection || null, item: null };
+        }
+
+        const inferredSection = sectionFromRow || activeSection || inferCsvSectionFromEnglish(english, activeSection);
+        return {
+            section: inferredSection,
+            item: {
+                en: english,
+                cn: chineseCandidates[0] || ''
+            }
+        };
+    }
+
     function parseCsvWords(text, fileName) {
         const rows = parseCsvRows(text);
         if (rows.length === 0) {
-            return { unitName: stripFileExtension(fileName), words: [] };
+            return { unitName: stripFileExtension(fileName), words: [], phrases: [], sentences: [] };
         }
 
-        const { index, hasHeader } = detectCsvWordColumn(rows);
-        if (index < 0) {
-            return { unitName: stripFileExtension(fileName), words: [] };
+        const parseHint = detectSourceParseHint(fileName, rows.flat().join('\n'));
+        const result = {
+            unitName: stripFileExtension(fileName),
+            words: [],
+            phrases: [],
+            sentences: []
+        };
+        const dedupe = {
+            words: new Set(),
+            phrases: new Set(),
+            sentences: new Set()
+        };
+
+        const pushItem = (section, item) => {
+            if (!section || !item || !item.en) return;
+            const targetSection = section === 'words' || section === 'phrases' || section === 'sentences'
+                ? section
+                : inferCsvSectionFromEnglish(item.en, parseHint.forceSection || null);
+            if (!targetSection) return;
+            const key = item.en.trim().toLowerCase();
+            if (!key || dedupe[targetSection].has(key)) return;
+            dedupe[targetSection].add(key);
+            result[targetSection].push({
+                en: item.en.trim(),
+                cn: String(item.cn || '').trim()
+            });
+        };
+
+        let dataRows = rows;
+        const headerCells = (rows[0] || []).map(normalizeCsvHeader);
+        const hasStructuredHeader = headerCells.some(col => /(word|english|vocab|term|phrase|sentence|type|kind|分类|类型|单词|词组|短语|句子|中文|释义)/.test(col));
+        if (hasStructuredHeader) {
+            dataRows = rows.slice(1);
         }
 
-        const dataRows = hasHeader ? rows.slice(1) : rows;
-        const dedupe = new Set();
-        const words = [];
-
+        let activeSection = parseHint.mixedSections ? null : (parseHint.forceSection || null);
         dataRows.forEach(row => {
-            const normalized = normalizeWordCandidate(row[index] || '');
-            if (!isLikelyWordEntry(normalized)) return;
+            if (!Array.isArray(row) || row.length === 0) return;
+            const joined = row.join(' ').trim();
+            const explicitSection = detectCsvSectionLabel(joined);
+            if (explicitSection && row.filter(col => String(col || '').trim()).length <= 2) {
+                activeSection = explicitSection;
+                return;
+            }
 
-            const key = normalized.toLowerCase();
-            if (dedupe.has(key)) return;
-            dedupe.add(key);
-            words.push(normalized);
+            const entry = buildCsvRowEntry(row, activeSection);
+            if (entry.section) activeSection = entry.section;
+            if (entry.item) {
+                pushItem(entry.section || parseHint.forceSection || inferCsvSectionFromEnglish(entry.item.en), entry.item);
+            }
         });
 
-        return {
-            unitName: stripFileExtension(fileName),
-            words
-        };
+        if (result.words.length === 0 && result.phrases.length === 0 && result.sentences.length === 0) {
+            const { index, hasHeader } = detectCsvWordColumn(rows);
+            if (index >= 0) {
+                const fallbackRows = hasHeader ? rows.slice(1) : rows;
+                fallbackRows.forEach(row => {
+                    const normalized = normalizeWordCandidate(row[index] || '');
+                    if (!isLikelyWordEntry(normalized) || looksLikeFileArtifact(normalized)) return;
+                    pushItem('words', { en: normalized, cn: '' });
+                });
+            }
+        }
+
+        return result;
     }
 
     function detectExplicitSectionHeader(line) {
