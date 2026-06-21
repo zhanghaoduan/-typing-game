@@ -1364,9 +1364,19 @@ const ImageOCR = (() => {
         recognizedData.book = prevMeta.book;
 
         const lines = String(rawText || '').split('\n').map(line => line.trim()).filter(Boolean);
-        const fallbackSentences = extractNumberedSentenceFallbacks(parseHint.fullOcrText || rawText);
+        const fullSentenceText = parseHint.fullOcrText || rawText;
+        const fallbackSentences = extractNumberedSentenceFallbacks(fullSentenceText);
+        const expectedCount = detectExpectedNumberedItemCount(fullSentenceText);
+        const seenNumbers = new Set();
         let currentSentence = '';
         let currentNumber = null;
+
+        const addSentenceEntry = (text, number) => {
+            const completed = completeForcedSentence(text, number, fallbackSentences);
+            if (!completed) return;
+            addToSection(completed, 'sentences', { forceSection: true });
+            if (number) seenNumbers.add(Number(number));
+        };
 
         for (const rawLine of lines) {
             const line = fixCommonOcrTextIssues(trimTrailingOcrNoise(rawLine), true);
@@ -1382,7 +1392,7 @@ const ImageOCR = (() => {
             const numberedMatch = line.match(/^\s*(\d{1,2})[.\s、:]+(.*)$/);
             if (numberedMatch) {
                 if (currentSentence) {
-                    addToSection(completeForcedSentence(currentSentence, currentNumber, fallbackSentences), 'sentences', { forceSection: true });
+                    addSentenceEntry(currentSentence, currentNumber);
                 }
                 currentNumber = Number(numberedMatch[1]);
                 currentSentence = fixCommonOcrTextIssues(
@@ -1401,7 +1411,16 @@ const ImageOCR = (() => {
         }
 
         if (currentSentence) {
-            addToSection(completeForcedSentence(currentSentence, currentNumber, fallbackSentences), 'sentences', { forceSection: true });
+            addSentenceEntry(currentSentence, currentNumber);
+        }
+
+        if (expectedCount > 0 && fallbackSentences.size > recognizedData.sentences.length) {
+            for (let number = 1; number <= expectedCount; number += 1) {
+                if (seenNumbers.has(number)) continue;
+                const missingSentence = fallbackSentences.get(number);
+                if (!missingSentence) continue;
+                addSentenceEntry(missingSentence, number);
+            }
         }
 
         autoTranslateAll();
