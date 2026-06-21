@@ -1458,6 +1458,7 @@ const App = (() => {
             grade: val(`mat-${uidx}-grade`),
             book: val(`mat-${uidx}-book`),
             unit_no: parseInt(val(`mat-${uidx}-unitno`), 10) || 0,
+            display_order: pickSourceValue(sourceUnit, 'display_order', '_displayOrder'),
             words: collectType('words'),
             phrases: collectType('phrases'),
             sentences: collectType('sentences'),
@@ -1570,6 +1571,7 @@ const App = (() => {
         };
         const payload = {
             name, words, phrases, sentences, publisher, grade, book, unit_no,
+            display_order: pickSourceValue(sourceUnit, 'display_order', '_displayOrder'),
             source_file_name: pickSourceValue(sourceUnit, 'source_file_name', '_sourceFileName'),
             source_mime_type: pickSourceValue(sourceUnit, 'source_mime_type', '_sourceMimeType'),
             source_file_path: pickSourceValue(sourceUnit, 'source_file_path', '_sourceFilePath'),
@@ -1667,6 +1669,8 @@ const App = (() => {
                 : '<span class="unit-badge">🔒 私有</span>')
             : '<span class="unit-badge unit-badge-public">🎓 老师标准</span>';
         const adminBtns = admin ? `
+                        <button class="btn btn-small btn-outline" onclick="App.reorderMaterialUnit('${unit.id}','up')" title="上移 Move Up">↑</button>
+                        <button class="btn btn-small btn-outline" onclick="App.reorderMaterialUnit('${unit.id}','down')" title="下移 Move Down">↓</button>
                         <button class="btn btn-small btn-info" onclick="App.editMaterialUnit('${unit.id}')" title="修改编辑">✏️</button>
                         <button class="btn btn-small btn-danger" onclick="App.deleteMaterialUnit('${unit.id}')" title="删除">🗑️</button>` : '';
         return `<div class="saved-unit-card">
@@ -1711,6 +1715,23 @@ const App = (() => {
             container.innerHTML = html;
         } catch (e) {
             container.innerHTML = '<p class="empty-hint">加载失败 Load failed</p>';
+        }
+    }
+
+    async function reorderMaterialUnit(id, direction) {
+        try {
+            const res = await AuthUI.apiRequest(`/units/admin/reorder/${id}`, {
+                method: 'POST',
+                body: JSON.stringify({ direction })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                alert(data.error || '排序失败 Reorder failed');
+                return;
+            }
+            renderMaterialUnits();
+        } catch (e) {
+            alert('排序失败 Reorder failed');
         }
     }
 
@@ -1802,6 +1823,7 @@ const App = (() => {
         addMaterialRow,
         removeMaterialRow,
         renderMaterialUnits,
+        reorderMaterialUnit,
         practiceMaterialUnit,
         editMaterialUnit,
         deleteMaterialUnit,

@@ -149,6 +149,7 @@ ensureColumn('units', 'publisher', "TEXT DEFAULT ''");
 ensureColumn('units', 'grade',     "TEXT DEFAULT ''");
 ensureColumn('units', 'book',      "TEXT DEFAULT ''");
 ensureColumn('units', 'unit_no',   "INTEGER DEFAULT 0");
+ensureColumn('units', 'display_order', "INTEGER DEFAULT 0");
 ensureColumn('units', 'source_file_name', "TEXT DEFAULT ''");
 ensureColumn('units', 'source_mime_type', "TEXT DEFAULT ''");
 ensureColumn('units', 'source_file_path', "TEXT DEFAULT ''");
@@ -165,6 +166,18 @@ try {
     }
 } catch (e) {
     console.warn('[db] unit_no backfill failed:', e.message);
+}
+
+try {
+    const rows = db.prepare("SELECT id, unit_no FROM units WHERE display_order IS NULL OR display_order = 0").all();
+    const upd = db.prepare("UPDATE units SET display_order = ? WHERE id = ?");
+    let nextOrder = 10000;
+    for (const r of rows) {
+        const order = (parseInt(r.unit_no, 10) || 0) > 0 ? parseInt(r.unit_no, 10) : nextOrder++;
+        upd.run(order, r.id);
+    }
+} catch (e) {
+    console.warn('[db] display_order backfill failed:', e.message);
 }
 
 // Create default admin account if not exists
