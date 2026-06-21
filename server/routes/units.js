@@ -234,11 +234,25 @@ router.post('/:id/submit-public', authenticate, (req, res) => {
         return res.json({ pending_public: 1, message: '已提交管理员审核 Already submitted for admin review' });
     }
 
+    const sourceRefs = Array.isArray(req.body && req.body.source_refs_json)
+        ? req.body.source_refs_json
+        : null;
+
     db.prepare(`
         UPDATE units
-        SET pending_public = 1, updated_at = CURRENT_TIMESTAMP
+        SET pending_public = 1,
+            source_refs_json = CASE
+                WHEN ? IS NOT NULL AND length(?) > 2 THEN ?
+                ELSE source_refs_json
+            END,
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-    `).run(req.params.id);
+    `).run(
+        sourceRefs ? JSON.stringify(sourceRefs) : null,
+        sourceRefs ? JSON.stringify(sourceRefs) : null,
+        sourceRefs ? JSON.stringify(sourceRefs) : null,
+        req.params.id
+    );
 
     res.json({ pending_public: 1, message: '已提交管理员公开审核 Submitted for admin public review' });
 });

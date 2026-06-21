@@ -3560,7 +3560,11 @@ const ImageOCR = (() => {
         const summary = panel ? panel.querySelector('.proofread-reference-summary') : null;
         const sourceRef = getReferenceForItem(type, idx);
         const src = sourceRef && sourceRef.imageSrc ? sourceRef.imageSrc : getReferenceImageSrc();
-        if (!panel || !image || !src) return;
+        if (!src) {
+            alert('这条内容没有保存原始图片，无法打开原图对照。请重新上传原始图片并保存一次。');
+            return;
+        }
+        if (!panel || !image) return;
 
         image.src = src;
         if (summary) {
@@ -3592,6 +3596,64 @@ const ImageOCR = (() => {
 
     // ========== SAVE / LOAD UNITS ==========
     const STORAGE_KEY = 'typing_game_custom_units';
+    const SOURCE_REF_CACHE_KEY = 'typing_game_source_ref_cache';
+
+    function buildUnitSourceRefCacheKeys(unit) {
+        const keys = [];
+        if (unit && unit.id !== undefined && unit.id !== null && unit.id !== '') {
+            keys.push(`id:${unit.id}`);
+        }
+        const signature = [
+            String(unit && unit.name || '').trim(),
+            (unit && unit.words || []).length,
+            (unit && unit.phrases || []).length,
+            (unit && unit.sentences || []).length
+        ].join('|');
+        if (signature && signature !== '||0|0|0') keys.push(`sig:${signature}`);
+        return keys;
+    }
+
+    function getSourceRefCache() {
+        try {
+            const raw = localStorage.getItem(SOURCE_REF_CACHE_KEY);
+            return raw ? JSON.parse(raw) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function saveSourceRefCache(cache) {
+        try {
+            localStorage.setItem(SOURCE_REF_CACHE_KEY, JSON.stringify(cache));
+        } catch (e) {}
+    }
+
+    function rememberUnitSourceRefs(unit, sourceRefs, serverId = null) {
+        const refs = Array.isArray(sourceRefs) ? sourceRefs.filter(ref => ref && ref.imageSrc) : [];
+        if (!refs.length) return;
+        const target = {
+            ...(unit || {}),
+            id: serverId !== null && serverId !== undefined ? serverId : (unit && unit.id)
+        };
+        const cache = getSourceRefCache();
+        buildUnitSourceRefCacheKeys(target).forEach(key => {
+            cache[key] = refs;
+        });
+        saveSourceRefCache(cache);
+    }
+
+    function hydrateUnitSourceRefs(unit) {
+        if (!unit || (Array.isArray(unit.source_refs_json) && unit.source_refs_json.length)) return unit;
+        const cache = getSourceRefCache();
+        for (const key of buildUnitSourceRefCacheKeys(unit)) {
+            const refs = cache[key];
+            if (Array.isArray(refs) && refs.length) {
+                unit.source_refs_json = refs.map(ref => ({ ...ref }));
+                break;
+            }
+        }
+        return unit;
+    }
 
     // Get saved units - from API if logged in, localStorage as fallback
     function getSavedUnits() {
@@ -3613,7 +3675,11 @@ const ImageOCR = (() => {
         try {
             const res = await AuthUI.apiRequest('/units');
             if (!res.ok) return { myUnits: [], publicUnits: [] };
-            return await res.json();
+            const data = await res.json();
+            return {
+                myUnits: (data.myUnits || []).map(unit => hydrateUnitSourceRefs(unit)),
+                publicUnits: (data.publicUnits || []).map(unit => hydrateUnitSourceRefs(unit))
+            };
         } catch (e) {
             return { myUnits: [], publicUnits: [] };
         }
@@ -3713,6 +3779,7 @@ const ImageOCR = (() => {
                 const editingServerId = recognizedData._editingServerId;
                 const result = await updateUnitOnServer(editingServerId, persistableUnit);
                 if (result) {
+                    rememberUnitSourceRefs({ ...persistableUnit, id: editingServerId }, persistableUnit.source_refs_json, editingServerId);
                     recognizedData._editingServerId = null;
                     recognizedData._editingIdx = null;
                     await renderSavedUnits({ focusUnitId: editingServerId });
@@ -3723,6 +3790,7 @@ const ImageOCR = (() => {
                 // Save new unit to server
                 const result = await saveUnitToServer(persistableUnit);
                 if (result) {
+                    rememberUnitSourceRefs({ ...persistableUnit, id: result.id }, persistableUnit.source_refs_json, result.id);
                     await renderSavedUnits({ focusUnitId: result.id });
                     alert(`✅ 已保存 "${unitName}"\n单词: ${unit.words.length} | 词组: ${unit.phrases.length} | 句子: ${unit.sentences.length}`);
                     return;
@@ -4052,7 +4120,19 @@ const ImageOCR = (() => {
     async function submitServerUnitForPublic(unitId) {
         if (!confirm('提交后管理员可查看原图并修改，审核通过后所有成员可见。继续提交？')) return;
         try {
-            const res = await AuthUI.apiRequest(`/units/${unitId}/submit-public`, { method: 'POST' });
+            const unit = _cachedServerUnits.find(u => u.id === unitId) || null;
+            const hydratedUnit = hydrateUnitSourceRefs(unit || {});
+            const sourceRefs = Array.isArray(hydratedUnit.source_refs_json) ? hydratedUnit.source_refs_json : [];
+            if (!sourceRefs.length) {
+                alert('这条旧单元没有保存原始图片，管理员无法核对原图。请重新上传原始图片并保存一次后再提交审核。');
+                return;
+            }
+            const res = await AuthUI.apiRequest(`/units/${unitId}/submit-public`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    source_refs_json: sourceRefs
+                })
+            });
             const data = await res.json();
             if (!res.ok) {
                 alert(data.error || '提交失败 Submit failed');
