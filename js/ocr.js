@@ -3345,13 +3345,15 @@ const ImageOCR = (() => {
     function removeItem(type, idx) {
         collectEdits(false); // Save current edits first
         recognizedData[type].splice(idx, 1);
-        refreshSection(type);
+        refreshSection(type, { skipCollect: true });
     }
 
     // Refresh a single section's HTML
     function refreshSection(type, options = {}) {
-        const { preserveEmpty = false, focusNewItem = false } = options;
-        collectEdits(!preserveEmpty, preserveEmpty); // Collect any edits user made in other sections
+        const { preserveEmpty = false, focusNewItem = false, skipCollect = false } = options;
+        if (!skipCollect) {
+            collectEdits(!preserveEmpty, preserveEmpty); // Collect any edits user made in other sections
+        }
         const container = document.getElementById(`proofread-${type}`);
         if (!container) return;
         let html = '';
