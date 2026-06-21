@@ -3184,16 +3184,22 @@ const ImageOCR = (() => {
         const forceSection = !!options.forceSection;
         const presetCn = String(options.presetCn || '').trim();
         const presetCnSource = String(options.presetCnSource || 'ocr').trim();
-        text = fixCommonOcrTextIssues(
-            trimTrailingCarryover(trimTrailingOcrNoise(text)),
-            section === 'sentences' || forceSection
-        ).trim();
+        // CSV 等可信来源的内容原样使用，不做任何 OCR 清洗/截断/垃圾过滤。
+        const skipOcrCleanup = presetCnSource === 'csv' || options.raw === true;
+        text = skipOcrCleanup
+            ? String(text || '').trim()
+            : fixCommonOcrTextIssues(
+                trimTrailingCarryover(trimTrailingOcrNoise(text)),
+                section === 'sentences' || forceSection
+            ).trim();
         if (!text || text.length < 2) return;
 
-        // Filter out obvious garbage
-        if (/^[—\-\s.%]+$/.test(text)) return;
-        if (!text.match(/[a-zA-Z]{2,}/)) return;
-        if (looksLikeOcrGarbage(text)) return;
+        if (!skipOcrCleanup) {
+            // Filter out obvious garbage
+            if (/^[—\-\s.%]+$/.test(text)) return;
+            if (!text.match(/[a-zA-Z]{2,}/)) return;
+            if (looksLikeOcrGarbage(text)) return;
+        }
 
         let targetSection = section || 'words';
         const wordCount = text.split(/\s+/).length;
