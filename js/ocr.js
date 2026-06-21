@@ -13,6 +13,7 @@ const ImageOCR = (() => {
     let previewObjectUrl = null;
     let translationRequestSeq = 0;
     let uploadedImageReferences = [];
+    let recognitionSummary = null;
 
     function createEmptyRecognizedData(raw = '') {
         return {
@@ -549,6 +550,24 @@ const ImageOCR = (() => {
         ];
         const phraseSignals = ['短语', '词组', 'phrase', 'phrases'];
         const wordSignals = ['单词', '词汇', 'word', 'words', 'vocabulary'];
+        const signalSections = [
+            { section: 'words', signals: wordSignals },
+            { section: 'phrases', signals: phraseSignals },
+            { section: 'sentences', signals: sentenceSignals }
+        ];
+
+        const fileNameSections = signalSections
+            .map(({ section, signals }) => ({
+                section,
+                index: signals.reduce((best, signal) => {
+                    const idx = name.indexOf(signal.toLowerCase());
+                    return idx >= 0 && (best < 0 || idx < best) ? idx : best;
+                }, -1)
+            }))
+            .filter(entry => entry.index >= 0)
+            .sort((a, b) => a.index - b.index)
+            .map(entry => entry.section);
+        const filenameDirected = fileNameSections.length > 0;
 
         const hasSignal = (signals) => signals.some(signal =>
             normalizedRaw.includes(signal.toLowerCase()) ||
@@ -573,11 +592,15 @@ const ImageOCR = (() => {
 
         const titleSectionSignalCount = [hasWordTitleSignal, hasPhraseTitleSignal, hasSentenceTitleSignal].filter(Boolean).length;
         const bodySectionSignalCount = [hasWordSignal, hasPhraseSignal, hasSentenceSignal].filter(Boolean).length;
-        const mixedSections = titleSectionSignalCount >= 2 || bodySectionSignalCount >= 2;
+        const mixedSections = filenameDirected
+            ? fileNameSections.length > 1
+            : (titleSectionSignalCount >= 2 || bodySectionSignalCount >= 2);
         const unitNameHint = stripFileExtension(fileName).match(/Unit\s*\d+[\s:.\-]*[A-Za-z][A-Za-z\s'-]*/i)?.[0]?.trim() || '';
 
         let forceSection = null;
-        if (!mixedSections) {
+        if (filenameDirected) {
+            forceSection = fileNameSections.length === 1 ? fileNameSections[0] : null;
+        } else if (!mixedSections) {
             if (hasSentenceTitleSignal) forceSection = 'sentences';
             else if (hasPhraseTitleSignal) forceSection = 'phrases';
             else if (hasWordTitleSignal) forceSection = 'words';
@@ -630,6 +653,7 @@ const ImageOCR = (() => {
         // Strong numbered phrase content can override a misleading file name,
         // but not an explicit sentence/word title recognized from the image itself.
         if (
+            !filenameDirected &&
             !hasSentenceTitleSignal &&
             !hasWordTitleSignal &&
             !hasSentenceSignal &&
@@ -644,6 +668,7 @@ const ImageOCR = (() => {
         // Strong numbered sentence content should override a misleading file name,
         // but not explicit phrase/word signals recognized from the image itself.
         if (
+            !filenameDirected &&
             !mixedSections &&
             !hasPhraseTitleSignal &&
             !hasWordTitleSignal &&
@@ -654,7 +679,7 @@ const ImageOCR = (() => {
             forceSection = 'sentences';
         }
 
-        if (!forceSection && !mixedSections && numberedLines.length >= 3) {
+        if (!filenameDirected && !forceSection && !mixedSections && numberedLines.length >= 3) {
             const sentenceStarters = /^(i|we|you|he|she|it|they|this|that|these|those|my|our|his|her|their|tom|love|a|an|the|in|hard)\b/i;
             const fallbackSentenceLikeCount = numberedLines.filter(line => {
                 const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
@@ -676,13 +701,13 @@ const ImageOCR = (() => {
             }
         }
 
-        if (!forceSection && !mixedSections) {
+        if (!filenameDirected && !forceSection && !mixedSections) {
             if (hasSentenceFileNameSignal) forceSection = 'sentences';
             else if (hasPhraseFileNameSignal) forceSection = 'phrases';
             else if (hasWordFileNameSignal) forceSection = 'words';
         }
 
-        return { forceSection, mixedSections, unitNameHint };
+        return { forceSection, mixedSections, unitNameHint, filenameSections, filenameDirected };
     }
 
     function createParseSeed(baseData) {
@@ -713,6 +738,17 @@ const ImageOCR = (() => {
         return parsed;
     }
 
+    function buildRecognitionSummary(fileStats = []) {
+        const summaryStats = Array.isArray(fileStats) ? fileStats : [];
+        return {
+            imageCount: summaryStats.length,
+            fileStats: summaryStats,
+            totalWords: summaryStats.reduce((sum, entry) => sum + (entry.words || 0), 0),
+            totalPhrases: summaryStats.reduce((sum, entry) => sum + (entry.phrases || 0), 0),
+            totalSentences: summaryStats.reduce((sum, entry) => sum + (entry.sentences || 0), 0)
+        };
+    }
+
     function detectExpectedNumberedItemCount(text) {
         const matches = [...String(text || '').matchAll(/(?:^|\s)(\d{1,2})[.\s、:]+/g)];
         if (matches.length === 0) return 0;
@@ -720,6 +756,7 @@ const ImageOCR = (() => {
     }
 
     function shouldUseAiForImage(parseHint, rawText, fileName = '') {
+        if (typeof AuthUI === 'undefined' || !AuthUI.isAdmin || !AuthUI.isAdmin()) return false;
         const text = String(rawText || '').trim();
         const expectedCount = detectExpectedNumberedItemCount(text);
         if (parseHint && parseHint.mixedSections) return false;
@@ -1438,10 +1475,12 @@ const ImageOCR = (() => {
         const csvFiles = files.filter(file => file.type === 'text/csv' || /\.csv$/i.test(file.name));
         const totalSources = imageFiles.length + csvFiles.length;
         const csvImports = [];
+        const imageStats = [];
         const aggregateData = createEmptyRecognizedData();
 
         translationRequestSeq += 1;
         uploadedImageReferences = [];
+        recognitionSummary = null;
         progressEl.style.display = 'block';
         document.getElementById('upload-results').style.display = 'none';
         recognizedData = createEmptyRecognizedData();
@@ -1527,6 +1566,12 @@ const ImageOCR = (() => {
                 if (parseHint.forceSection === 'sentences' && !parseHint.mixedSections) {
                     lockRecognizedSection(parsedData, 'sentences');
                 }
+                imageStats.push({
+                    name: file.name,
+                    words: (parsedData.words || []).length,
+                    phrases: (parsedData.phrases || []).length,
+                    sentences: (parsedData.sentences || []).length
+                });
                 attachSourceReference(parsedData, sourceRef);
                 mergeRecognizedData(aggregateData, parsedData);
                 sourceIndex += 1;
@@ -1568,17 +1613,20 @@ const ImageOCR = (() => {
             if (!recognizedData.unitName) {
                 recognizedData.unitName = deriveUnitNameFromFiles(files);
             }
+            recognitionSummary = buildRecognitionSummary(imageStats);
 
             console.log('[OCR] Raw text:', recognizedData.raw);
 
             // DeepSeek re-classification: ask LLM to re-bucket items into
             // words / phrases / sentences while preserving the original
             // image numbering order. Falls back silently if not configured.
-            try {
-                statusEl.textContent = '正在用 DeepSeek 智能分类... Reclassifying with DeepSeek...';
-                await reclassifyRecognizedDataWithDeepSeek();
-            } catch (e) {
-                console.warn('[OCR] DeepSeek classification skipped:', e && e.message);
+            if (typeof AuthUI !== 'undefined' && AuthUI.isAdmin && AuthUI.isAdmin()) {
+                try {
+                    statusEl.textContent = '正在用 DeepSeek 智能分类... Reclassifying with DeepSeek...';
+                    await reclassifyRecognizedDataWithDeepSeek();
+                } catch (e) {
+                    console.warn('[OCR] DeepSeek classification skipped:', e && e.message);
+                }
             }
 
             autoTranslateAll();
@@ -2114,7 +2162,7 @@ const ImageOCR = (() => {
         const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
         const forcedSection = parseHint.forceSection || null;
 
-        if (parseHint.mixedSections) {
+        if (parseHint.mixedSections && (!parseHint.filenameSections || parseHint.filenameSections.length === 0)) {
             const mixedTotal = parseMixedSectionExercise(rawText, parseHint);
             if (mixedTotal >= 5) {
                 console.log('[OCR] Mixed-section parsed:', recognizedData.unitName,
@@ -2242,21 +2290,31 @@ const ImageOCR = (() => {
         contentGroups.forEach((group, idx) => {
             const rawItems = group.items.map(item => typeof item === 'string' ? item : String(item.en || '').trim()).filter(Boolean);
             const avgWords = rawItems.reduce((sum, item) => sum + item.split(/\s+/).length, 0) / rawItems.length;
+            const filenameSections = Array.isArray(parseHint.filenameSections) ? parseHint.filenameSections : [];
+
+            const inferSectionFromWords = () => {
+                if (avgWords <= 1.3) return 'words';
+                if (avgWords <= 4.5) return 'phrases';
+                return 'sentences';
+            };
 
             let section;
             if (group.forcedSection) {
                 section = group.forcedSection;
-            } else if (avgWords <= 1.3) {
-                section = 'words';
-            } else if (avgWords <= 4.5) {
-                section = 'phrases';
+            } else if (filenameSections.length > 0) {
+                const inferred = inferSectionFromWords();
+                if (filenameSections.includes(inferred)) {
+                    section = inferred;
+                } else {
+                    section = filenameSections[Math.min(idx, filenameSections.length - 1)];
+                }
             } else {
-                section = 'sentences';
+                section = inferSectionFromWords();
             }
 
             // Respect expected order: if previous groups were already 'words' then 'phrases',
             // this one should be 'sentences' even if avgWords is low
-            if (idx > 0) {
+            if (idx > 0 && filenameSections.length === 0) {
                 const prevSections = contentGroups.slice(0, idx)
                     .map(g => g.assignedSection)
                     .filter(Boolean);
@@ -2681,6 +2739,26 @@ const ImageOCR = (() => {
             <datalist id="publisher-options">${PUBLISHER_OPTIONS.map(p => `<option value="${escapeHtml(p)}">`).join('')}</datalist>
             <datalist id="grade-options">${GRADE_OPTIONS.map(g => `<option value="${escapeHtml(g)}">`).join('')}</datalist>
         </div>`;
+
+        if (recognitionSummary && recognitionSummary.imageCount > 0) {
+            html += `<div class="proofread-summary-card">
+                <div class="proofread-summary-header">
+                    <strong>📊 识别统计 Recognition Summary</strong>
+                    <span>共 ${recognitionSummary.imageCount} 张图片</span>
+                </div>
+                <div class="proofread-summary-total">
+                    合计：单词 ${recognitionSummary.totalWords} / 词组 ${recognitionSummary.totalPhrases} / 句子 ${recognitionSummary.totalSentences}
+                </div>
+                <div class="proofread-summary-list">
+                    ${recognitionSummary.fileStats.map((entry, index) => `
+                        <div class="proofread-summary-row">
+                            <span class="proofread-summary-name">${index + 1}. ${escapeHtml(entry.name || '')}</span>
+                            <span class="proofread-summary-counts">单词 ${entry.words || 0} · 词组 ${entry.phrases || 0} · 句子 ${entry.sentences || 0}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
+        }
 
         // Words section
         html += buildEditableSection('words', '📝 单词 Words', recognizedData.words);
@@ -3514,6 +3592,7 @@ const ImageOCR = (() => {
     function clearImage() {
         translationRequestSeq += 1;
         uploadedImageReferences = [];
+        recognitionSummary = null;
         hideReferenceImagePanel();
         document.getElementById('upload-preview').style.display = 'none';
         document.getElementById('upload-area').style.display = 'block';
