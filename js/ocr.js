@@ -684,7 +684,7 @@ const ImageOCR = (() => {
         return seed;
     }
 
-    function buildRecognizedDataFromAiStructure(aiResult, baseData, rawText = '') {
+    function buildRecognizedDataFromAiStructure(aiResult, baseData, rawText = '', forceSection = '') {
         const snapshot = recognizedData;
         recognizedData = createParseSeed(baseData);
         recognizedData.raw = rawText;
@@ -696,7 +696,7 @@ const ImageOCR = (() => {
         });
 
         autoTranslateAll();
-        const parsed = cloneRecognizedData(recognizedData);
+        const parsed = reclassifyForcedSectionItems(cloneRecognizedData(recognizedData), forceSection);
         recognizedData = snapshot;
         return parsed;
     }
@@ -1475,7 +1475,7 @@ const ImageOCR = (() => {
                     );
                     if (hasAiItems(aiResult)) {
                         parsedData = expandSentenceItemsFromFullOcr(
-                            buildRecognizedDataFromAiStructure(aiResult, aggregateData, rawText),
+                            buildRecognizedDataFromAiStructure(aiResult, aggregateData, rawText, parseHint.forceSection || ''),
                             parseHint.fullOcrText
                         );
                     }
