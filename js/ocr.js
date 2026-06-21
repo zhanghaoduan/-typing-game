@@ -1311,15 +1311,16 @@ const ImageOCR = (() => {
             const startPos = start.pos + start.length;
             const endPos = index + 1 < starts.length ? starts[index + 1].pos : text.length;
             const block = text.slice(startPos, endPos).trim();
+            let boundaryText = block
+                .replace(/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            const punctuationMatch = boundaryText.match(/^(.+?[.!?])(?:\s|$)/);
+            if (punctuationMatch) {
+                boundaryText = punctuationMatch[1].trim();
+            }
             const normalized = fixCommonOcrTextIssues(
-                trimTrailingCarryover(
-                    trimTrailingOcrNoise(
-                        block
-                            .replace(/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/g, ' ')
-                            .replace(/\s+/g, ' ')
-                            .trim()
-                    )
-                ),
+                trimTrailingCarryover(trimTrailingOcrNoise(boundaryText)),
                 true
             ).trim();
             if (!normalized || countEnglishWords(normalized) < 3) return;
@@ -1377,6 +1378,19 @@ const ImageOCR = (() => {
             addToSection(completed, 'sentences', { forceSection: true });
             if (number) seenNumbers.add(Number(number));
         };
+
+        if (fallbackSentences.size > 0) {
+            const orderedNumbers = [...fallbackSentences.keys()].sort((a, b) => a - b);
+            orderedNumbers.forEach((number) => {
+                addSentenceEntry(fallbackSentences.get(number), number);
+            });
+            if (expectedCount === 0 || fallbackSentences.size >= expectedCount) {
+                autoTranslateAll();
+                return;
+            }
+            recognizedData.sentences = [];
+            seenNumbers.clear();
+        }
 
         for (const rawLine of lines) {
             const line = fixCommonOcrTextIssues(trimTrailingOcrNoise(rawLine), true);
