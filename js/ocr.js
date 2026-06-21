@@ -3195,12 +3195,32 @@ const ImageOCR = (() => {
     }
 
     // ========== PROOFREADING UI ==========
+    function getPrimaryReferenceSourceRef() {
+        if (Array.isArray(uploadedImageReferences) && uploadedImageReferences.length > 0) {
+            return uploadedImageReferences[0];
+        }
+        const previewSrc = getReferenceImageSrc();
+        if (!previewSrc) return null;
+        return {
+            kind: 'image',
+            index: 0,
+            name: '',
+            imageSrc: previewSrc,
+            rawText: ''
+        };
+    }
+
     function showProofreadUI() {
         const resultsEl = document.getElementById('upload-results');
         resultsEl.style.display = 'block';
         normalizeRecognizedCollections(recognizedData);
-        const referenceSrc = getReferenceImageSrc();
-        const referenceSummary = escapeHtml(document.getElementById('preview-summary')?.textContent || '原图参考 Original image reference');
+        const primaryReference = getPrimaryReferenceSourceRef();
+        const referenceSrc = primaryReference && primaryReference.imageSrc ? primaryReference.imageSrc : '';
+        const referenceSummary = escapeHtml(
+            primaryReference && primaryReference.name
+                ? `来源图片：${primaryReference.name}`
+                : (document.getElementById('preview-summary')?.textContent || '原图参考 Original image reference')
+        );
 
         let html = '';
 
@@ -3311,6 +3331,7 @@ const ImageOCR = (() => {
                        placeholder="中文翻译" data-type="${type}" data-idx="${idx}"
                        oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'">${escapeHtml(item.cn)}</textarea>
                 </div>
+                <button type="button" class="btn-icon btn-info" onclick="ImageOCR.showReferenceForItem('${type}', ${idx})" title="查看原图">🖼️</button>
                 <button type="button" class="btn-icon btn-delete" onclick="ImageOCR.removeItem('${type}', ${idx})" title="删除">✕</button>
             </div>`;
         }
@@ -3322,6 +3343,7 @@ const ImageOCR = (() => {
                    onchange="ImageOCR.onEnglishEdit(this)" onblur="ImageOCR.onEnglishEdit(this)">
             <input type="text" class="proofread-cn" value="${escapeHtml(item.cn)}" 
                    placeholder="中文释义(可选)" data-type="${type}" data-idx="${idx}">
+            <button type="button" class="btn-icon btn-info" onclick="ImageOCR.showReferenceForItem('${type}', ${idx})" title="查看原图">🖼️</button>
             <button type="button" class="btn-icon btn-delete" onclick="ImageOCR.removeItem('${type}', ${idx})" title="删除">✕</button>
         </div>`;
     }
@@ -3532,26 +3554,33 @@ const ImageOCR = (() => {
         return refs;
     }
 
-    function onProofreadEnglishFocus(inputEl) {
+    function showReferenceForItem(type, idx, inputEl = null) {
         const panel = document.getElementById('proofread-reference-panel');
         const image = document.getElementById('proofread-reference-image');
         const summary = panel ? panel.querySelector('.proofread-reference-summary') : null;
-        const type = inputEl.dataset.type;
-        const idx = parseInt(inputEl.dataset.idx, 10);
         const sourceRef = getReferenceForItem(type, idx);
         const src = sourceRef && sourceRef.imageSrc ? sourceRef.imageSrc : getReferenceImageSrc();
         if (!panel || !image || !src) return;
 
         image.src = src;
         if (summary) {
-            const itemText = inputEl.value.trim();
+            const activeInput = inputEl || document.querySelector(`.proofread-en[data-type="${type}"][data-idx="${idx}"]`);
+            const itemText = activeInput ? activeInput.value.trim() : String((recognizedData[type] && recognizedData[type][idx] && recognizedData[type][idx].en) || '').trim();
             summary.textContent = sourceRef && sourceRef.name
                 ? `当前内容：${itemText || '（空）'} ｜ 来源图片：${sourceRef.name}`
                 : `当前内容：${itemText || '（空）'} ｜ 原图参考 Original image reference`;
         }
         panel.style.display = 'block';
         panel.classList.add('is-visible');
-        inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (inputEl && inputEl.scrollIntoView) {
+            inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
+
+    function onProofreadEnglishFocus(inputEl) {
+        const type = inputEl.dataset.type;
+        const idx = parseInt(inputEl.dataset.idx, 10);
+        showReferenceForItem(type, idx, inputEl);
     }
 
     function hideReferenceImagePanel() {
@@ -4007,6 +4036,10 @@ const ImageOCR = (() => {
         recognizedData._editingIdx = null;
         restoreUploadedReferencesFromRecognizedData();
         showProofreadUI();
+        if (uploadedImageReferences.length > 0) {
+            const firstType = ['words', 'phrases', 'sentences'].find(type => (recognizedData[type] || []).length > 0);
+            if (firstType) showReferenceForItem(firstType, 0);
+        }
     }
 
     // Edit a server unit
@@ -4197,6 +4230,7 @@ const ImageOCR = (() => {
         removeItem,
         onEnglishEdit,
         onProofreadEnglishFocus,
+        showReferenceForItem,
         hideReferenceImagePanel,
         saveUnit,
         practiceUnit,
