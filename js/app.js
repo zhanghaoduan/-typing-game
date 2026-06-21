@@ -573,6 +573,36 @@ const App = (() => {
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    function formatPracticeTitle(row) {
+        if (row && row.session_title) return row.session_title;
+        const kind = String((row && row.kind) || '');
+        const ref = String((row && row.ref_id) || '').trim();
+        if (kind === 'module') return ref ? `主题模块 Module ${ref}` : '主题模块练习';
+        if (kind === 'level') return ref ? `闯关 Level ${ref}` : '闯关练习';
+        if (/^grade\d+-level$/.test(kind)) return ref ? `${kind} · ${ref}` : kind;
+        if (/^grade\d+-random$/.test(kind)) return ref ? `${kind} · ${ref}` : kind;
+        return ref ? `${kind} · ${ref}` : kind;
+    }
+
+    function renderPracticeWrongItems(items) {
+        const list = Array.isArray(items) ? items : [];
+        if (!list.length) return '<p class="empty-hint">本次无错题 No wrong answers in this session</p>';
+        return list.map((item, idx) => `
+            <div class="practice-wrong-item">
+                <div><strong>${idx + 1}. ${escapeHtml(item.en || '')}</strong> <span class="practice-wrong-type">${escapeHtml(item.type || 'word')}</span></div>
+                <div>中文：${escapeHtml(item.cn || '-')}</div>
+                <div>你的答案：${escapeHtml(item.yourAnswer || '-')}</div>
+            </div>
+        `).join('');
+    }
+
+    function togglePracticeWrongbook(logId) {
+        const row = document.getElementById(`practice-wrongbook-${logId}`);
+        if (!row) return;
+        const open = row.style.display !== 'none';
+        row.style.display = open ? 'none' : 'table-row';
+    }
+
     // ============== PROFILE ==============
     async function renderProfile() {
         const basicEl = document.getElementById('profile-basic');
@@ -616,20 +646,32 @@ const App = (() => {
                     histEl.innerHTML = '<p class="empty-hint">暂无练习记录 No practice records yet</p>';
                 } else {
                     let html = '<table class="profile-history-table"><thead><tr>'
-                        + '<th>时间 Time</th><th>类型 Kind</th><th>编号 Ref</th>'
-                        + '<th>分数 Score</th><th>⭐</th><th>正确率 Acc</th><th>时长 Dur</th>'
+                        + '<th>时间 Time</th><th>练习内容 Content</th>'
+                        + '<th>分数 Score</th><th>⭐</th><th>正确率 Acc</th><th>时长 Dur</th><th>错题 Wrongbook</th>'
                         + '</tr></thead><tbody>';
                     list.forEach(r => {
                         const acc = r.attempts > 0 ? Math.round((r.correct / r.attempts) * 100) + '%' : '-';
                         const t = r.created_at ? new Date(r.created_at + 'Z').toLocaleString() : '';
+                        const title = formatPracticeTitle(r);
+                        const wrongCount = Array.isArray(r.wrong_items) ? r.wrong_items.length : 0;
                         html += `<tr>
                             <td>${escapeHtml(t)}</td>
-                            <td>${escapeHtml(r.kind)}</td>
-                            <td>${escapeHtml(r.ref_id)}</td>
+                            <td>${escapeHtml(title)}</td>
                             <td>${r.score}</td>
                             <td>${'⭐'.repeat(r.stars || 0)}</td>
                             <td>${acc}</td>
                             <td>${formatDuration(r.duration_ms)}</td>
+                            <td>${wrongCount > 0
+                                ? `<button class="btn btn-small btn-outline" onclick="App.togglePracticeWrongbook(${r.id})">查看 ${wrongCount} 题</button>`
+                                : '<span class="empty-hint">无</span>'}</td>
+                        </tr>`;
+                        html += `<tr id="practice-wrongbook-${r.id}" class="practice-wrongbook-row" style="display:none;">
+                            <td colspan="7">
+                                <div class="practice-wrongbook-panel">
+                                    <h4>📝 本次练习错题本 Session Wrongbook</h4>
+                                    ${renderPracticeWrongItems(r.wrong_items)}
+                                </div>
+                            </td>
                         </tr>`;
                     });
                     html += '</tbody></table>';
@@ -1802,6 +1844,7 @@ const App = (() => {
         togglePublic,
         deleteUnit,
         renderProfile,
+        togglePracticeWrongbook,
         showAdminTab,
         renderAdminUsers,
         adminResetPassword,

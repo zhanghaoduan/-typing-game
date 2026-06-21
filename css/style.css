@@ -1816,6 +1816,33 @@ body.theme-dark .user-info .btn-outline:hover {
     gap: 8px;
 }
 
+.practice-wrongbook-row td {
+    background: #f8fafc;
+}
+
+.practice-wrongbook-panel {
+    padding: 12px 4px;
+}
+
+.practice-wrongbook-panel h4 {
+    margin-bottom: 10px;
+}
+
+.practice-wrong-item {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    line-height: 1.6;
+    background: var(--bg-card, #fff);
+}
+
+.practice-wrong-type {
+    font-size: 12px;
+    color: var(--text-light, #64748b);
+    margin-left: 8px;
+}
+
 .source-viewer-modal {
     position: fixed;
     inset: 0;

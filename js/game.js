@@ -28,7 +28,9 @@ const Game = (() => {
         isLevelMode: false,
         currentModule: null,
         coinsEarned: 0,
-        grade: null
+        grade: null,
+        sessionTitle: '',
+        sessionWrongAnswers: []
     };
 
     // Track whether current item has been reported to SRS (one report per item)
@@ -250,6 +252,75 @@ const Game = (() => {
         return a;
     }
 
+    function getGradeLabel(grade) {
+        const map = {
+            1: '小学 Primary',
+            2: '初中 Junior High',
+            3: '高中 Senior High',
+            4: '大学 University'
+        };
+        return map[Number(grade)] || `Grade ${grade}`;
+    }
+
+    function getModeLabel(mode) {
+        const map = {
+            words: '单词',
+            phrases: '词组',
+            sentences: '句子',
+            listening: '听力',
+            mixed: '综合'
+        };
+        return map[mode] || '练习';
+    }
+
+    function getSessionTitleFromItems(items, mode) {
+        const first = Array.isArray(items) && items.length ? items[0] : null;
+        if (first && first._sourceKind === 'material' && first._sourceUnitName) {
+            return `老师标准 ${first._sourceUnitName} · ${getModeLabel(mode)}`;
+        }
+        return '';
+    }
+
+    function buildSessionTitle() {
+        if (state.sessionTitle) return state.sessionTitle;
+        if (state.isLevelMode && !state.grade) {
+            const levelDef = LEVELS[state.level - 1];
+            return levelDef ? `闯关 ${levelDef.nameCN}` : `闯关 Level ${state.level}`;
+        }
+        if (state.grade && state.isLevelMode) {
+            const def = GRADE_LEVELS.find(item => item.id === state.level);
+            return `${getGradeLabel(state.grade)} · ${def ? def.name : ('Level ' + state.level)}`;
+        }
+        if (state.grade) {
+            return `${getGradeLabel(state.grade)} · ${state.totalItems}词练习`;
+        }
+        if (state.currentModule && Array.isArray(moduleData)) {
+            const mod = moduleData.find(item => item.id === state.currentModule);
+            if (mod) return `主题模块 ${mod.nameCN} ${mod.name}`;
+        }
+        return `${getModeLabel(state.mode)}练习`;
+    }
+
+    function recordSessionWrongAnswer(item, answer) {
+        if (!item || !item.en) return;
+        if (!Array.isArray(state.sessionWrongAnswers)) state.sessionWrongAnswers = [];
+        const key = `${item.type || 'word'}::${String(item.en).toLowerCase()}`;
+        const existing = state.sessionWrongAnswers.find(entry => entry.key === key);
+        const payload = {
+            key,
+            en: item.en || '',
+            cn: item.cn || '',
+            yourAnswer: String(answer || '').trim(),
+            type: item.type || 'word'
+        };
+        if (existing) {
+            existing.yourAnswer = payload.yourAnswer;
+            existing.cn = payload.cn;
+        } else {
+            state.sessionWrongAnswers.push(payload);
+        }
+    }
+
     // Start a level (level mode)
     async function startLevel(levelId) {
         const data = Storage.getData();
@@ -285,7 +356,9 @@ const Game = (() => {
             isLevelMode: true,
             currentModule: null,
             coinsEarned: 0,
-            grade: null
+            grade: null,
+            sessionTitle: `闯关 ${levelDef.nameCN}`,
+            sessionWrongAnswers: []
         };
 
         initGameUI();
@@ -323,8 +396,11 @@ const Game = (() => {
             isLevelMode: false,
             currentModule: moduleId,
             coinsEarned: 0,
-            grade: null
+            grade: null,
+            sessionTitle: '',
+            sessionWrongAnswers: []
         };
+        state.sessionTitle = buildSessionTitle();
 
         initGameUI();
         startTimer();
@@ -358,7 +434,9 @@ const Game = (() => {
             isLevelMode: false,
             currentModule: null,
             coinsEarned: 0,
-            grade: null
+            grade: null,
+            sessionTitle: getSessionTitleFromItems(items, mode),
+            sessionWrongAnswers: []
         };
 
         initGameUI();
@@ -393,7 +471,9 @@ const Game = (() => {
             isLevelMode: false,
             currentModule: null,
             coinsEarned: 0,
-            grade: null
+            grade: null,
+            sessionTitle: '听写训练 Dictation',
+            sessionWrongAnswers: []
         };
         initGameUI();
         startTimer();
@@ -747,6 +827,7 @@ const Game = (() => {
                 yourAnswer: answer,
                 type: item.type
             });
+            recordSessionWrongAnswer(item, answer);
 
             // Report to SRS once per item (first wrong attempt)
             if (_srsReportedForIndex !== state.currentIndex) {
@@ -952,11 +1033,18 @@ const Game = (() => {
             Storage.reportPractice({
                 kind,
                 ref_id: String(refId == null ? '' : refId),
+                session_title: buildSessionTitle(),
                 score: state.score,
                 stars: stars,
                 correct: state.correct,
                 attempts: state.correct + state.wrong,
-                duration_ms: durationMs
+                duration_ms: durationMs,
+                wrong_items: (state.sessionWrongAnswers || []).map(item => ({
+                    en: item.en || '',
+                    cn: item.cn || '',
+                    yourAnswer: item.yourAnswer || '',
+                    type: item.type || 'word'
+                }))
             });
         } catch (e) { /* ignore */ }
 
@@ -1200,7 +1288,9 @@ const Game = (() => {
             isLevelMode: !!opts.isLevelMode,
             currentModule: opts.currentModule || null,
             coinsEarned: 0,
-            grade: opts.grade || null
+            grade: opts.grade || null,
+            sessionTitle: opts.sessionTitle || '',
+            sessionWrongAnswers: []
         };
     }
 
@@ -1211,7 +1301,8 @@ const Game = (() => {
         const items = await fetchRandomWords(grade, def.count);
         if (items.length === 0) return;
         state = buildState(items, {
-            mode: 'words', level: levelId, lives: 99, isLevelMode: true, grade
+            mode: 'words', level: levelId, lives: 99, isLevelMode: true, grade,
+            sessionTitle: `${getGradeLabel(grade)} · ${(def && def.name) || ('Level ' + levelId)}`
         });
         initGameUI();
         startTimer();
@@ -1223,7 +1314,8 @@ const Game = (() => {
         const items = await fetchRandomWords(grade, count || 15);
         if (items.length === 0) return;
         state = buildState(items, {
-            mode: 'words', level: 0, lives: 99, isLevelMode: false, grade
+            mode: 'words', level: 0, lives: 99, isLevelMode: false, grade,
+            sessionTitle: `${getGradeLabel(grade)} · ${items.length}词练习`
         });
         initGameUI();
         startTimer();

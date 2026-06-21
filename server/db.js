@@ -155,6 +155,8 @@ ensureColumn('units', 'source_mime_type', "TEXT DEFAULT ''");
 ensureColumn('units', 'source_file_path', "TEXT DEFAULT ''");
 ensureColumn('units', 'source_text',      "TEXT DEFAULT ''");
 ensureColumn('users', 'grade',     "TEXT DEFAULT ''");
+ensureColumn('practice_logs', 'session_title',   "TEXT DEFAULT ''");
+ensureColumn('practice_logs', 'wrong_items_json',"TEXT DEFAULT '[]'");
 
 // Backfill unit_no by extracting "Unit N" from name, where empty/zero
 try {

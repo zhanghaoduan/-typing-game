@@ -63,11 +63,11 @@ router.put('/stats', (req, res) => {
 
 // POST /api/me/practice
 router.post('/practice', (req, res) => {
-    const { kind, ref_id, score, stars, correct, attempts, duration_ms } = req.body || {};
+    const { kind, ref_id, score, stars, correct, attempts, duration_ms, session_title, wrong_items } = req.body || {};
     if (!kind) return res.status(400).json({ error: 'kind required' });
     db.prepare(`INSERT INTO practice_logs
-        (user_id, kind, ref_id, score, stars, correct, attempts, duration_ms)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        (user_id, kind, ref_id, score, stars, correct, attempts, duration_ms, session_title, wrong_items_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         req.user.id,
         String(kind),
         ref_id == null ? null : String(ref_id),
@@ -75,7 +75,9 @@ router.post('/practice', (req, res) => {
         Number(stars) || 0,
         Number(correct) || 0,
         Number(attempts) || 0,
-        Number(duration_ms) || 0
+        Number(duration_ms) || 0,
+        String(session_title || '').trim(),
+        JSON.stringify(Array.isArray(wrong_items) ? wrong_items : [])
     );
     const today = new Date().toISOString().slice(0, 10);
     db.prepare('INSERT OR IGNORE INTO login_days (user_id, date) VALUES (?, ?)').run(req.user.id, today);
@@ -88,9 +90,18 @@ router.get('/practice-history', (req, res) => {
     if (limit < 1) limit = 1;
     if (limit > 200) limit = 200;
     const rows = db.prepare(
-        'SELECT id, kind, ref_id, score, stars, correct, attempts, duration_ms, created_at FROM practice_logs WHERE user_id = ? ORDER BY id DESC LIMIT ?'
+        'SELECT id, kind, ref_id, score, stars, correct, attempts, duration_ms, session_title, wrong_items_json, created_at FROM practice_logs WHERE user_id = ? ORDER BY id DESC LIMIT ?'
     ).all(req.user.id, limit);
-    res.json({ history: rows });
+    res.json({
+        history: rows.map(row => {
+            let wrongItems = [];
+            try { wrongItems = JSON.parse(row.wrong_items_json || '[]'); } catch (_) {}
+            return {
+                ...row,
+                wrong_items: Array.isArray(wrongItems) ? wrongItems : []
+            };
+        })
+    });
 });
 
 // GET /api/me/profile  — basic user fields (username, role, grade)
