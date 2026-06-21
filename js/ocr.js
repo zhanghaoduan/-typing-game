@@ -2525,6 +2525,25 @@ const ImageOCR = (() => {
         };
     }
 
+    function detectStructuredCsvColumns(headerRow) {
+        if (!Array.isArray(headerRow) || headerRow.length === 0) return null;
+        const norm = headerRow.map(normalizeCsvHeader);
+        const findIdx = (patterns) => {
+            for (const re of patterns) {
+                const idx = norm.findIndex(h => re.test(h));
+                if (idx >= 0) return idx;
+            }
+            return -1;
+        };
+        const typeIdx = findIdx([/类型/, /分类/, /^type$/, /^kind$/]);
+        const enIdx = findIdx([/英文内容/, /英文/, /^english$/, /^word$/, /^words$/, /单词/]);
+        const cnIdx = findIdx([/中文释义/, /释义/, /原句/, /中文/, /^translation$/, /^meaning$/]);
+        if (typeIdx >= 0 && enIdx >= 0 && typeIdx !== enIdx) {
+            return { typeIdx, enIdx, cnIdx };
+        }
+        return null;
+    }
+
     function parseCsvWords(text, fileName) {
         const rows = parseCsvRows(text);
         if (rows.length === 0) {
@@ -2564,6 +2583,24 @@ const ImageOCR = (() => {
         const hasStructuredHeader = headerCells.some(col => /(word|english|vocab|term|phrase|sentence|type|kind|分类|类型|单词|词组|短语|句子|中文|释义)/.test(col));
         if (hasStructuredHeader) {
             dataRows = rows.slice(1);
+        }
+
+        // 当 CSV 含有明确的「类型」和「英文内容」列时，直接按列读取标注好的分类，
+        // 不再进行任何智能判断（单词/词组/句子以文件标注为准）。
+        const structuredColumns = hasStructuredHeader ? detectStructuredCsvColumns(rows[0]) : null;
+        if (structuredColumns) {
+            dataRows.forEach(row => {
+                if (!Array.isArray(row)) return;
+                const section = detectCsvSectionLabel(row[structuredColumns.typeIdx] || '');
+                if (!section) return;
+                const en = String(row[structuredColumns.enIdx] || '').trim();
+                if (!en || looksLikeFileArtifact(en)) return;
+                const cn = structuredColumns.cnIdx >= 0
+                    ? String(row[structuredColumns.cnIdx] || '').trim()
+                    : '';
+                pushItem(section, { en, cn });
+            });
+            return result;
         }
 
         let activeSection = parseHint.mixedSections ? null : (parseHint.forceSection || null);
