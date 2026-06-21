@@ -838,6 +838,7 @@ const App = (() => {
                         ${report.source_unit_name ? `<span>来源：${escapeHtml(report.source_unit_name)}</span>` : ''}
                     </div>
                     <div class="vocab-review-actions">
+                        ${firstMatch ? `<button class="btn btn-small btn-outline" onclick='App.viewUnitSource(${firstMatch.unitId}, ${JSON.stringify(report.en_text || "")})'>🔎 查看词源</button>` : ''}
                         ${firstMatch ? `<button class="btn btn-small btn-outline" onclick="App.fixVocabReport(${report.id})">✏️ 修改对应词条</button>` : ''}
                         <button class="btn btn-small btn-outline" onclick="App.resolveVocabReport(${report.id}, 'resolved')">✅ 标记已解决</button>
                         <button class="btn btn-small btn-outline" onclick="App.resolveVocabReport(${report.id}, 'ignored')">🙈 忽略</button>
@@ -972,12 +973,100 @@ const App = (() => {
                         <span>${escapeHtml((item.reasons || []).join('；') || '')}</span>
                     </div>
                     <div class="vocab-review-actions">
+                        <button class="btn btn-small btn-outline" onclick='App.viewUnitSource(${item.unitId}, ${JSON.stringify(item.en || "")})'>🔎 查看词源</button>
                         <button class="btn btn-small btn-outline" onclick="App.fixVocabAuditEntry(${item.unitId}, '${item.field}', ${item.index})">✏️ 修改</button>
                     </div>
                 </div>`;
             }).join('');
         } catch (e) {
             container.innerHTML = '<p class="empty-hint">核对失败 Audit failed</p>';
+        }
+    }
+
+    function ensureSourceViewer() {
+        let modal = document.getElementById('source-viewer-modal');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.id = 'source-viewer-modal';
+        modal.className = 'source-viewer-modal';
+        modal.style.display = 'none';
+        modal.innerHTML = `
+            <div class="source-viewer-dialog">
+                <div class="source-viewer-header">
+                    <h3>🔎 查看词源 Source Viewer</h3>
+                    <button class="btn btn-small btn-outline" onclick="App.closeSourceViewer()">关闭 Close</button>
+                </div>
+                <div id="source-viewer-body" class="source-viewer-body"></div>
+            </div>
+        `;
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) closeSourceViewer();
+        });
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    function closeSourceViewer() {
+        const modal = document.getElementById('source-viewer-modal');
+        if (!modal) return;
+        modal.style.display = 'none';
+        const body = document.getElementById('source-viewer-body');
+        if (body) body.innerHTML = '';
+    }
+
+    async function openUnitSourceFile(unitId) {
+        try {
+            const res = await AuthUI.apiRequest(`/material/source/${unitId}/file`);
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                alert(data.error || '无法打开原始文件 Failed to open source file');
+                return;
+            }
+            const blob = await res.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            window.open(blobUrl, '_blank', 'noopener');
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+        } catch (e) {
+            alert('无法打开原始文件 Failed to open source file');
+        }
+    }
+
+    async function viewUnitSource(unitId, query) {
+        const modal = ensureSourceViewer();
+        const body = document.getElementById('source-viewer-body');
+        if (!body) return;
+        modal.style.display = 'flex';
+        body.innerHTML = '<p class="empty-hint">加载中... Loading...</p>';
+        try {
+            const res = await AuthUI.apiRequest(`/material/source/${unitId}?q=${encodeURIComponent(query || '')}`);
+            const data = await res.json();
+            if (!res.ok) {
+                body.innerHTML = `<p class="empty-hint">${escapeHtml(data.error || '加载失败 Failed to load')}</p>`;
+                return;
+            }
+            const matchHtml = (data.matches || []).length
+                ? (data.matches || []).map(line => `<div class="source-viewer-line">${escapeHtml(line)}</div>`).join('')
+                : `<div class="source-viewer-line">${escapeHtml(data.previewText || '暂无匹配原文 No matched source text')}</div>`;
+            body.innerHTML = `
+                <div class="source-viewer-meta">
+                    <div><strong>单元 Unit:</strong> ${escapeHtml(data.unitName || '')}</div>
+                    <div><strong>查询词 Query:</strong> ${escapeHtml(query || '')}</div>
+                    <div><strong>原始文件 File:</strong> ${escapeHtml(data.fileName || '暂无')}</div>
+                </div>
+                <div class="source-viewer-actions">
+                    ${data.hasFile ? `<button class="btn btn-small btn-primary" onclick="App.openUnitSourceFile(${Number(unitId)})">📄 打开原始文件</button>` : '<span class="empty-hint">暂无原始文件，可先查看下方提取原文。</span>'}
+                </div>
+                <div class="source-viewer-section">
+                    <h4>📌 匹配原文 Matched Source</h4>
+                    <div class="source-viewer-pre">${matchHtml}</div>
+                </div>
+                <div class="source-viewer-section">
+                    <h4>📚 提取文本 Preview</h4>
+                    <pre class="source-viewer-pre">${escapeHtml(data.previewText || '暂无原文预览 No preview')}</pre>
+                </div>
+            `;
+        } catch (e) {
+            body.innerHTML = '<p class="empty-hint">加载失败 Failed to load</p>';
         }
     }
 
@@ -1340,6 +1429,11 @@ const App = (() => {
             const node = document.getElementById(id);
             return node ? (node.value || '').trim() : '';
         };
+        const pickSourceValue = (unit, key, draftKey) => {
+            if (unit && unit[key] !== undefined) return unit[key];
+            if (unit && unit[draftKey] !== undefined) return unit[draftKey];
+            return undefined;
+        };
         const collectType = type => {
             const items = [];
             const block = document.querySelector(`.material-unit-block[data-uidx="${uidx}"]`);
@@ -1355,6 +1449,9 @@ const App = (() => {
             });
             return items;
         };
+        const sourceUnit = uidx === 'edit'
+            ? (materialEditingUnit || materialUnit || {})
+            : ((materialGenUnits && materialGenUnits[Number(uidx)]) || {});
         return {
             name: val(`mat-${uidx}-name`),
             publisher: val(`mat-${uidx}-publisher`),
@@ -1363,7 +1460,11 @@ const App = (() => {
             unit_no: parseInt(val(`mat-${uidx}-unitno`), 10) || 0,
             words: collectType('words'),
             phrases: collectType('phrases'),
-            sentences: collectType('sentences')
+            sentences: collectType('sentences'),
+            source_file_name: pickSourceValue(sourceUnit, 'source_file_name', '_sourceFileName'),
+            source_mime_type: pickSourceValue(sourceUnit, 'source_mime_type', '_sourceMimeType'),
+            source_file_path: pickSourceValue(sourceUnit, 'source_file_path', '_sourceFilePath'),
+            source_text: pickSourceValue(sourceUnit, 'source_text', '_sourceText')
         };
     }
 
@@ -1461,6 +1562,19 @@ const App = (() => {
         const book = (document.getElementById('material-book').value || '').trim();
         const unit_no = parseInt(document.getElementById('material-unitno').value, 10) || 0;
         const makePublic = document.getElementById('material-public').checked;
+        const sourceUnit = materialEditingUnit || materialUnit || {};
+        const pickSourceValue = (unit, key, draftKey) => {
+            if (unit && unit[key] !== undefined) return unit[key];
+            if (unit && unit[draftKey] !== undefined) return unit[draftKey];
+            return undefined;
+        };
+        const payload = {
+            name, words, phrases, sentences, publisher, grade, book, unit_no,
+            source_file_name: pickSourceValue(sourceUnit, 'source_file_name', '_sourceFileName'),
+            source_mime_type: pickSourceValue(sourceUnit, 'source_mime_type', '_sourceMimeType'),
+            source_file_path: pickSourceValue(sourceUnit, 'source_file_path', '_sourceFilePath'),
+            source_text: pickSourceValue(sourceUnit, 'source_text', '_sourceText')
+        };
 
         if (!name) { alert('请填写单元名 Please enter a unit name'); return; }
         if (words.length + phrases.length + sentences.length === 0) {
@@ -1473,7 +1587,7 @@ const App = (() => {
                 // Update existing standard unit
                 const res = await AuthUI.apiRequest(`/units/${materialEditingUnit.id}`, {
                     method: 'PUT',
-                    body: JSON.stringify({ name, words, phrases, sentences, publisher, grade, book, unit_no })
+                    body: JSON.stringify(payload)
                 });
                 const data = await res.json();
                 if (!res.ok) { alert(data.error || '保存失败 Save failed'); return; }
@@ -1486,7 +1600,7 @@ const App = (() => {
             } else {
                 const res = await AuthUI.apiRequest('/units', {
                     method: 'POST',
-                    body: JSON.stringify({ name, words, phrases, sentences, publisher, grade, book, unit_no })
+                    body: JSON.stringify(payload)
                 });
                 const data = await res.json();
                 if (!res.ok) { alert(data.error || '保存失败 Save failed'); return; }
@@ -1677,6 +1791,9 @@ const App = (() => {
         fixVocabAuditEntry,
         resolveVocabReport,
         fixVocabReport,
+        viewUnitSource,
+        openUnitSourceFile,
+        closeSourceViewer,
         generateMaterial,
         saveMaterialUnit,
         saveOneMaterialUnit,

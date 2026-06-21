@@ -1,7 +1,15 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const db = require('../db');
 const { authenticate, requireAdmin } = require('../auth');
 
 const router = express.Router();
+
+const MATERIAL_UPLOAD_DIR = path.join(__dirname, '..', 'data', 'material_uploads');
+if (!fs.existsSync(MATERIAL_UPLOAD_DIR)) {
+    fs.mkdirSync(MATERIAL_UPLOAD_DIR, { recursive: true });
+}
 
 router.use(authenticate);
 router.use(requireAdmin);
@@ -74,6 +82,66 @@ function detectFileType(fileName, mimeType) {
     if (name.endsWith('.csv') || mime.includes('csv')) return 'csv';
     if (name.endsWith('.txt') || mime.startsWith('text/')) return 'txt';
     return '';
+}
+
+function guessMimeType(fileType) {
+    switch (fileType) {
+        case 'pdf': return 'application/pdf';
+        case 'docx': return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        case 'xlsx': return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        case 'xls': return 'application/vnd.ms-excel';
+        case 'csv': return 'text/csv; charset=utf-8';
+        case 'txt': return 'text/plain; charset=utf-8';
+        default: return 'application/octet-stream';
+    }
+}
+
+function sanitizeFileName(fileName) {
+    const base = path.basename(String(fileName || '').trim() || 'material-source');
+    return base.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
+}
+
+function saveMaterialSourceFile(buffer, fileName) {
+    const safeName = sanitizeFileName(fileName);
+    const ext = path.extname(safeName) || '';
+    const stem = ext ? safeName.slice(0, -ext.length) : safeName;
+    const storedName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${stem}${ext}`;
+    const absPath = path.join(MATERIAL_UPLOAD_DIR, storedName);
+    fs.writeFileSync(absPath, buffer);
+    return {
+        storedName,
+        relativePath: `material_uploads/${storedName}`
+    };
+}
+
+function normalizeStoredSourcePath(relPath) {
+    const normalized = String(relPath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!normalized.startsWith('material_uploads/')) return '';
+    const absPath = path.join(path.join(__dirname, '..', 'data'), normalized);
+    const safeBase = path.join(__dirname, '..', 'data') + path.sep;
+    if (!absPath.startsWith(safeBase)) return '';
+    return absPath;
+}
+
+function buildSourceMatches(sourceText, query) {
+    const lines = String(sourceText || '')
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean);
+    if (!lines.length) return [];
+    const needle = String(query || '').trim().toLowerCase();
+    if (!needle) return lines.slice(0, 20);
+    const matches = [];
+    lines.forEach((line, index) => {
+        if (line.toLowerCase().includes(needle)) {
+            const start = Math.max(0, index - 1);
+            const end = Math.min(lines.length, index + 2);
+            for (let i = start; i < end; i++) {
+                if (!matches.includes(lines[i])) matches.push(lines[i]);
+            }
+        }
+    });
+    return matches.slice(0, 20);
 }
 
 async function extractTextFromBuffer(buffer, fileType) {
@@ -571,6 +639,8 @@ router.post('/generate', async (req, res) => {
         }
 
         const hints = deriveHintsFromFileName(fileName);
+        const sourceFile = saveMaterialSourceFile(buffer, fileName);
+        const sourceMimeType = mimeType || guessMimeType(fileType);
 
         // Split the file into per-unit blocks (handles "...Unit1-6.pdf" with 6 units)
         // and structure each unit independently.
@@ -578,7 +648,13 @@ router.post('/generate', async (req, res) => {
         const results = await Promise.all(blocks.map(b => generateUnitFromBlock(b, hints)));
 
         const units = results
-            .map(r => r.unit)
+            .map((r, index) => ({
+                ...r.unit,
+                _sourceFileName: fileName,
+                _sourceMimeType: sourceMimeType,
+                _sourceFilePath: sourceFile.relativePath,
+                _sourceText: String((blocks[index] && blocks[index].text) || rawText || '').slice(0, 60000)
+            }))
             .filter(u => (u.words.length + u.phrases.length + u.sentences.length) > 0);
 
         if (units.length === 0) {
@@ -601,6 +677,51 @@ router.post('/generate', async (req, res) => {
         console.warn('[material] generate failed:', err.message);
         return res.status(500).json({ error: '智能生成失败 Smart generation failed' });
     }
+});
+
+router.get('/source/:unitId', (req, res) => {
+    const unitId = parseInt(req.params.unitId, 10);
+    if (!unitId) return res.status(400).json({ error: '无效单元ID Invalid unit id' });
+    const unit = db.prepare(`
+        SELECT id, name, source_file_name, source_mime_type, source_file_path, source_text
+        FROM units
+        WHERE id = ?
+    `).get(unitId);
+    if (!unit) return res.status(404).json({ error: '单元不存在 Unit not found' });
+    const matches = buildSourceMatches(unit.source_text, req.query.q);
+    const hasFile = !!(unit.source_file_path && normalizeStoredSourcePath(unit.source_file_path) && fs.existsSync(normalizeStoredSourcePath(unit.source_file_path)));
+    const previewText = matches.length
+        ? matches.join('\n')
+        : String(unit.source_text || '').split(/\r?\n/).slice(0, 20).join('\n');
+    res.json({
+        unitId: unit.id,
+        unitName: unit.name || '',
+        fileName: unit.source_file_name || '',
+        mimeType: unit.source_mime_type || '',
+        hasFile,
+        hasText: !!String(unit.source_text || '').trim(),
+        previewText,
+        matches,
+        downloadPath: hasFile ? `/api/material/source/${unit.id}/file` : ''
+    });
+});
+
+router.get('/source/:unitId/file', (req, res) => {
+    const unitId = parseInt(req.params.unitId, 10);
+    if (!unitId) return res.status(400).json({ error: '无效单元ID Invalid unit id' });
+    const unit = db.prepare(`
+        SELECT id, name, source_file_name, source_mime_type, source_file_path
+        FROM units
+        WHERE id = ?
+    `).get(unitId);
+    if (!unit) return res.status(404).json({ error: '单元不存在 Unit not found' });
+    const absPath = normalizeStoredSourcePath(unit.source_file_path);
+    if (!absPath || !fs.existsSync(absPath)) {
+        return res.status(404).json({ error: '暂无原始文件 No source file available' });
+    }
+    res.setHeader('Content-Type', unit.source_mime_type || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(unit.source_file_name || path.basename(absPath))}`);
+    res.sendFile(absPath);
 });
 
 module.exports = router;
