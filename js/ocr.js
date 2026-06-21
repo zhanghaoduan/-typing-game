@@ -186,11 +186,22 @@ const ImageOCR = (() => {
     }
 
     function sanitizeItemForPersistence(item) {
-        return {
+        const sourceRef = item && item._sourceRef && item._sourceRef.imageSrc
+            ? {
+                kind: String(item._sourceRef.kind || 'image'),
+                index: Number.isFinite(item._sourceRef.index) ? item._sourceRef.index : 0,
+                name: String(item._sourceRef.name || '').trim(),
+                imageSrc: String(item._sourceRef.imageSrc || '').trim(),
+                rawText: String(item._sourceRef.rawText || '').trim()
+            }
+            : null;
+        const sanitized = {
             en: String(item && item.en || '').trim(),
             cn: String(item && item.cn || '').trim(),
             difficulty: Number(item && item.difficulty) || 1
         };
+        if (sourceRef && sourceRef.imageSrc) sanitized._sourceRef = sourceRef;
+        return sanitized;
     }
 
     function buildPersistableUnit(unit) {
@@ -3434,6 +3445,48 @@ const ImageOCR = (() => {
         return uploadedImageReferences[0] || null;
     }
 
+    function reviveStoredSourceRef(item) {
+        if (!item || !item._sourceRef || !item._sourceRef.imageSrc) return null;
+        return {
+            kind: String(item._sourceRef.kind || 'image'),
+            index: Number.isFinite(item._sourceRef.index) ? item._sourceRef.index : 0,
+            name: String(item._sourceRef.name || '').trim(),
+            imageSrc: String(item._sourceRef.imageSrc || '').trim(),
+            rawText: String(item._sourceRef.rawText || '').trim()
+        };
+    }
+
+    function mapStoredProofreadItem(item) {
+        const mapped = {
+            en: String(item && item.en || '').trim(),
+            cn: String(item && item.cn || '').trim()
+        };
+        const difficulty = Number(item && item.difficulty);
+        if (Number.isFinite(difficulty) && difficulty > 0) mapped.difficulty = difficulty;
+        const sourceRef = reviveStoredSourceRef(item);
+        if (sourceRef) mapped._sourceRef = sourceRef;
+        return mapped;
+    }
+
+    function restoreUploadedReferencesFromRecognizedData() {
+        const refs = [];
+        const seen = new Set();
+        ['words', 'phrases', 'sentences'].forEach((type) => {
+            (recognizedData[type] || []).forEach((item) => {
+                const sourceRef = reviveStoredSourceRef(item);
+                if (!sourceRef || !sourceRef.imageSrc) return;
+                const key = `${sourceRef.name}|${sourceRef.imageSrc.slice(0, 64)}`;
+                if (seen.has(key)) return;
+                seen.add(key);
+                refs.push(sourceRef);
+            });
+        });
+        if (refs.length > 0) {
+            uploadedImageReferences = refs;
+        }
+        return refs;
+    }
+
     function onProofreadEnglishFocus(inputEl) {
         const panel = document.getElementById('proofread-reference-panel');
         const image = document.getElementById('proofread-reference-image');
@@ -3895,11 +3948,12 @@ const ImageOCR = (() => {
         recognizedData.grade = unit.grade || '';
         recognizedData.book = unit.book || '';
         recognizedData.unitNo = unit.unit_no || 0;
-        recognizedData.words = (unit.words || []).map(w => ({ en: w.en, cn: w.cn || '' }));
-        recognizedData.phrases = (unit.phrases || []).map(p => ({ en: p.en, cn: p.cn || '' }));
-        recognizedData.sentences = (unit.sentences || []).map(s => ({ en: s.en, cn: s.cn || '' }));
+        recognizedData.words = (unit.words || []).map(mapStoredProofreadItem);
+        recognizedData.phrases = (unit.phrases || []).map(mapStoredProofreadItem);
+        recognizedData.sentences = (unit.sentences || []).map(mapStoredProofreadItem);
         recognizedData._editingServerId = unitId;
         recognizedData._editingIdx = null;
+        restoreUploadedReferencesFromRecognizedData();
 
         showProofreadUI();
     }
@@ -3972,12 +4026,13 @@ const ImageOCR = (() => {
 
         // Load unit data into recognizedData
         recognizedData.unitName = unit.name;
-        recognizedData.words = (unit.words || []).map(w => ({ en: w.en, cn: w.cn || '' }));
-        recognizedData.phrases = (unit.phrases || []).map(p => ({ en: p.en, cn: p.cn || '' }));
-        recognizedData.sentences = (unit.sentences || []).map(s => ({ en: s.en, cn: s.cn || '' }));
+        recognizedData.words = (unit.words || []).map(mapStoredProofreadItem);
+        recognizedData.phrases = (unit.phrases || []).map(mapStoredProofreadItem);
+        recognizedData.sentences = (unit.sentences || []).map(mapStoredProofreadItem);
 
         // Store which unit we're editing so save overwrites it
         recognizedData._editingIdx = unitIdx;
+        restoreUploadedReferencesFromRecognizedData();
 
         // Show the proofreading UI
         showProofreadUI();
