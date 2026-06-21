@@ -30,7 +30,9 @@ const Game = (() => {
         coinsEarned: 0,
         grade: null,
         sessionTitle: '',
-        sessionWrongAnswers: []
+        sessionWrongAnswers: [],
+        sessionKind: '',
+        sessionRefId: ''
     };
 
     // Track whether current item has been reported to SRS (one report per item)
@@ -358,7 +360,9 @@ const Game = (() => {
             coinsEarned: 0,
             grade: null,
             sessionTitle: `闯关 ${levelDef.nameCN}`,
-            sessionWrongAnswers: []
+            sessionWrongAnswers: [],
+            sessionKind: 'level',
+            sessionRefId: String(levelId)
         };
 
         initGameUI();
@@ -398,7 +402,9 @@ const Game = (() => {
             coinsEarned: 0,
             grade: null,
             sessionTitle: '',
-            sessionWrongAnswers: []
+            sessionWrongAnswers: [],
+            sessionKind: 'module',
+            sessionRefId: String(moduleId == null ? '' : moduleId)
         };
         state.sessionTitle = buildSessionTitle();
 
@@ -408,7 +414,7 @@ const Game = (() => {
     }
 
     // Start custom practice (from OCR image upload)
-    function startCustomPractice(items, mode) {
+    function startCustomPractice(items, mode, options = {}) {
         if (!items || items.length === 0) return;
 
         state = {
@@ -435,8 +441,10 @@ const Game = (() => {
             currentModule: null,
             coinsEarned: 0,
             grade: null,
-            sessionTitle: getSessionTitleFromItems(items, mode),
-            sessionWrongAnswers: []
+            sessionTitle: options.sessionTitle || getSessionTitleFromItems(items, mode),
+            sessionWrongAnswers: [],
+            sessionKind: options.sessionKind || '',
+            sessionRefId: options.sessionRefId == null ? '' : String(options.sessionRefId)
         };
 
         initGameUI();
@@ -473,7 +481,9 @@ const Game = (() => {
             coinsEarned: 0,
             grade: null,
             sessionTitle: '听写训练 Dictation',
-            sessionWrongAnswers: []
+            sessionWrongAnswers: [],
+            sessionKind: 'dictation',
+            sessionRefId: ''
         };
         initGameUI();
         startTimer();
@@ -1026,10 +1036,10 @@ const Game = (() => {
 
         // Report practice session to server (if logged in)
         try {
-            const refId = state.isLevelMode ? state.level : (state.currentModule || 0);
-            const kind = state.grade
+            const refId = state.sessionRefId || (state.isLevelMode ? state.level : (state.currentModule || 0));
+            const kind = state.sessionKind || (state.grade
                 ? (state.isLevelMode ? `grade${state.grade}-level` : `grade${state.grade}-random`)
-                : (state.isLevelMode ? 'level' : 'module');
+                : (state.isLevelMode ? 'level' : 'module'));
             Storage.reportPractice({
                 kind,
                 ref_id: String(refId == null ? '' : refId),
@@ -1290,7 +1300,9 @@ const Game = (() => {
             coinsEarned: 0,
             grade: opts.grade || null,
             sessionTitle: opts.sessionTitle || '',
-            sessionWrongAnswers: []
+            sessionWrongAnswers: [],
+            sessionKind: opts.sessionKind || '',
+            sessionRefId: opts.sessionRefId == null ? '' : String(opts.sessionRefId)
         };
     }
 
@@ -1302,7 +1314,9 @@ const Game = (() => {
         if (items.length === 0) return;
         state = buildState(items, {
             mode: 'words', level: levelId, lives: 99, isLevelMode: true, grade,
-            sessionTitle: `${getGradeLabel(grade)} · ${(def && def.name) || ('Level ' + levelId)}`
+            sessionTitle: `${getGradeLabel(grade)} · ${(def && def.name) || ('Level ' + levelId)}`,
+            sessionKind: `grade${grade}-level`,
+            sessionRefId: String(levelId)
         });
         initGameUI();
         startTimer();
@@ -1315,7 +1329,9 @@ const Game = (() => {
         if (items.length === 0) return;
         state = buildState(items, {
             mode: 'words', level: 0, lives: 99, isLevelMode: false, grade,
-            sessionTitle: `${getGradeLabel(grade)} · ${items.length}词练习`
+            sessionTitle: `${getGradeLabel(grade)} · ${items.length}词练习`,
+            sessionKind: `grade${grade}-random`,
+            sessionRefId: String(items.length)
         });
         initGameUI();
         startTimer();

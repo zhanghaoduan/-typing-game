@@ -577,6 +577,7 @@ const App = (() => {
         if (row && row.session_title) return row.session_title;
         const kind = String((row && row.kind) || '');
         const ref = String((row && row.ref_id) || '').trim();
+        if (kind === 'material') return ref ? `老师标准 Unit ${ref}` : '老师标准练习';
         if (kind === 'module') return ref ? `主题模块 Module ${ref}` : '主题模块练习';
         if (kind === 'level') return ref ? `闯关 Level ${ref}` : '闯关练习';
         if (/^grade\d+-level$/.test(kind)) return ref ? `${kind} · ${ref}` : kind;
@@ -1799,7 +1800,11 @@ const App = (() => {
             const j = Math.floor(Math.random() * (i + 1));
             [items[i], items[j]] = [items[j], items[i]];
         }
-        Game.startCustomPractice(items, type === 'listening' ? 'listening' : 'mixed');
+        Game.startCustomPractice(items, type === 'listening' ? 'listening' : 'mixed', {
+            sessionKind: 'material',
+            sessionRefId: unit.id,
+            sessionTitle: `老师标准 ${unit.name} · ${type === 'words' ? '单词' : type === 'phrases' ? '词组' : type === 'sentences' ? '句子' : '听力'}`
+        });
     }
 
     function editMaterialUnit(id) {
