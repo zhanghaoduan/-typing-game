@@ -22,10 +22,13 @@ const Game = (() => {
         timeLeft: 0,
         timeTotal: 0,
         startTime: null,
+        pausedDurationMs: 0,
+        pauseStartedAt: null,
         isPaused: false,
         isLevelMode: false,
         currentModule: null,
-        coinsEarned: 0
+        coinsEarned: 0,
+        grade: null
     };
 
     // Track whether current item has been reported to SRS (one report per item)
@@ -131,6 +134,71 @@ const Game = (() => {
         }
     }
 
+    function getElapsedMs() {
+        const startTime = state.startTime || Date.now();
+        const pausedDuration = state.pausedDurationMs || 0;
+        const currentPause = state.pauseStartedAt ? (Date.now() - state.pauseStartedAt) : 0;
+        return Math.max(0, Date.now() - startTime - pausedDuration - currentPause);
+    }
+
+    function formatElapsedMs(ms) {
+        const totalSec = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+        const minutes = Math.floor(totalSec / 60);
+        const seconds = totalSec % 60;
+        if (minutes === 0) return `${seconds}s`;
+        return `${minutes}m ${seconds}s`;
+    }
+
+    function updateElapsedDisplay() {
+        const elapsedEl = document.getElementById('game-elapsed');
+        if (elapsedEl) elapsedEl.textContent = formatElapsedMs(getElapsedMs());
+    }
+
+    function updatePauseControls() {
+        const pauseBtn = document.getElementById('btn-pause-game');
+        const resumeBtn = document.getElementById('btn-resume-game');
+        const inputEl = document.getElementById('game-input');
+        const submitBtn = document.getElementById('btn-submit');
+        if (pauseBtn) pauseBtn.style.display = state.isPaused ? 'none' : 'inline-flex';
+        if (resumeBtn) resumeBtn.style.display = state.isPaused ? 'inline-flex' : 'none';
+        if (inputEl) inputEl.disabled = !!state.isPaused;
+        if (submitBtn) submitBtn.disabled = !!state.isPaused;
+    }
+
+    function getPromptModeConfig() {
+        const mode = (typeof App !== 'undefined' && App.getPromptMode)
+            ? App.getPromptMode()
+            : 'bilingual_speech';
+        switch (mode) {
+        case 'english_only':
+            return { showEnglish: true, showChinese: false, autoSpeak: false, audioText: '', audioLang: 'en-US', answerTools: true, listeningStyle: false, targetUsesChinese: false };
+        case 'chinese_only':
+            return { showEnglish: false, showChinese: false, autoSpeak: false, audioText: '', audioLang: 'zh-CN', answerTools: true, listeningStyle: false, targetUsesChinese: true };
+        case 'english_listening':
+            return { showEnglish: false, showChinese: false, autoSpeak: true, audioText: 'english', audioLang: 'en-US', answerTools: true, listeningStyle: true, targetUsesChinese: false };
+        case 'chinese_listening':
+            return { showEnglish: false, showChinese: false, autoSpeak: true, audioText: 'chinese', audioLang: 'zh-CN', answerTools: true, listeningStyle: true, targetUsesChinese: false };
+        case 'bilingual_silent':
+            return { showEnglish: true, showChinese: true, autoSpeak: false, audioText: '', audioLang: 'en-US', answerTools: true, listeningStyle: false, targetUsesChinese: false };
+        default:
+            return { showEnglish: true, showChinese: true, autoSpeak: true, audioText: 'english', audioLang: 'en-US', answerTools: true, listeningStyle: false, targetUsesChinese: false };
+        }
+    }
+
+    function sanitizeChineseSpeechText(text) {
+        return String(text || '')
+            .replace(/^\s*(?:(?:n|v|vi|vt|adj|adv|prep|pron|conj|int|num|art|aux|modal(?:\s+v)?)\s*\.)+\s*/i, '')
+            .trim();
+    }
+
+    function renderAnswerExplanation(item) {
+        const feedbackEl = document.getElementById('feedback-area');
+        if (!feedbackEl || !item) return;
+        feedbackEl.className = 'feedback-area feedback-answer';
+        feedbackEl.innerHTML = `💡 答案 Answer: <strong>${escapeHtml(item.en || '')}</strong>${item.cn ? ` <span class="answer-cn">= ${escapeHtml(item.cn)}</span>` : ''}<div class="dict-panels" id="dict-panels-answer-${state.currentIndex}"><div class="dict-loading">📖 正在查询词典…</div></div>`;
+        renderDictPanels(item.en, '', `dict-panels-answer-${state.currentIndex}`);
+    }
+
     // Get random items from modules based on mode and difficulty
     function getItems(mode, difficulty, count, moduleId = null) {
         if (!moduleData) return [];
@@ -211,10 +279,13 @@ const Game = (() => {
             timeLeft: levelDef.timeLimit,
             timeTotal: levelDef.timeLimit,
             startTime: Date.now(),
+            pausedDurationMs: 0,
+            pauseStartedAt: null,
             isPaused: false,
             isLevelMode: true,
             currentModule: null,
-            coinsEarned: 0
+            coinsEarned: 0,
+            grade: null
         };
 
         initGameUI();
@@ -246,10 +317,13 @@ const Game = (() => {
             timeLeft: 0,
             timeTotal: 0,
             startTime: Date.now(),
+            pausedDurationMs: 0,
+            pauseStartedAt: null,
             isPaused: false,
             isLevelMode: false,
             currentModule: moduleId,
-            coinsEarned: 0
+            coinsEarned: 0,
+            grade: null
         };
 
         initGameUI();
@@ -278,10 +352,13 @@ const Game = (() => {
             timeLeft: 0,
             timeTotal: 0,
             startTime: Date.now(),
+            pausedDurationMs: 0,
+            pauseStartedAt: null,
             isPaused: false,
             isLevelMode: false,
             currentModule: null,
-            coinsEarned: 0
+            coinsEarned: 0,
+            grade: null
         };
 
         initGameUI();
@@ -310,10 +387,13 @@ const Game = (() => {
             timeLeft: 0,
             timeTotal: 0,
             startTime: Date.now(),
+            pausedDurationMs: 0,
+            pauseStartedAt: null,
             isPaused: false,
             isLevelMode: false,
             currentModule: null,
-            coinsEarned: 0
+            coinsEarned: 0,
+            grade: null
         };
         initGameUI();
         startTimer();
@@ -328,11 +408,19 @@ const Game = (() => {
         document.getElementById('game-combo').textContent = '0';
         document.getElementById('game-wpm').textContent = '0';
         document.getElementById('game-accuracy').textContent = '100%';
+        const promptSelect = document.getElementById('game-prompt-mode');
+        if (promptSelect && typeof App !== 'undefined' && App.getPromptMode) {
+            promptSelect.value = App.getPromptMode();
+        }
+        updateElapsedDisplay();
+        updatePauseControls();
         updateLivesDisplay();
         updateProgressDisplay();
         document.getElementById('game-input').value = '';
         document.getElementById('game-input').focus();
         document.getElementById('feedback-area').textContent = '';
+        const answerToolsEl = document.getElementById('answer-tools');
+        if (answerToolsEl) answerToolsEl.style.display = 'none';
 
         // Show/hide timer based on timeLimit
         const timerEl = document.getElementById('game-timer');
@@ -348,7 +436,8 @@ const Game = (() => {
         document.getElementById('game-lives').parentElement.style.display = 'none';
 
         // Show/hide listening controls
-        const isListening = state.mode === 'listening';
+        const promptMode = getPromptModeConfig();
+        const isListening = state.mode === 'listening' || promptMode.listeningStyle;
         document.getElementById('listening-controls').style.display = isListening ? 'flex' : 'none';
 
         // Bind Enter key
@@ -374,7 +463,9 @@ const Game = (() => {
         const item = state.items[state.currentIndex];
         const targetEl = document.getElementById('target-text');
         const hintEl = document.getElementById('hint-cn');
+        const hintAreaEl = document.getElementById('hint-area');
         const inputEl = document.getElementById('game-input');
+        const answerToolsEl = document.getElementById('answer-tools');
 
         inputEl.value = '';
         inputEl.className = 'game-input';
@@ -383,20 +474,44 @@ const Game = (() => {
 
         if (state.mode === 'listening') {
             // Hide text, play audio
+            hintAreaEl.style.display = '';
+            hintAreaEl.hidden = false;
             targetEl.textContent = '🔊 听录音，输入你听到的内容';
             targetEl.style.fontSize = '20px';
             hintEl.textContent = `第 ${state.currentIndex + 1} 题 | ${item.type === 'word' ? '单词' : '短语'}`;
-            Audio.setCurrentWord(item.en);
+            Audio.setCurrentWord(item.en, 'en-US');
+            if (answerToolsEl) answerToolsEl.style.display = 'flex';
             // Auto play after delay (needs prior user interaction for browser policy)
-            setTimeout(() => Audio.speak(item.en), 800);
+            setTimeout(() => Audio.speak(item.en, false, 'en-US'), 800);
         } else {
-            // Show text
-            targetEl.textContent = item.en;
-            targetEl.style.fontSize = item.type === 'sentence' ? '22px' : '32px';
-            hintEl.textContent = item.cn;
-            // Also speak for non-listening modes
-            Audio.setCurrentWord(item.en);
-            Audio.speak(item.en);
+            const promptMode = getPromptModeConfig();
+            const englishText = item.en || '';
+            const chineseText = item.cn || '';
+            const targetText = promptMode.listeningStyle
+                ? '🔊'
+                : (promptMode.showEnglish ? englishText : ((promptMode.targetUsesChinese ? chineseText : '') || englishText));
+            targetEl.textContent = targetText;
+            targetEl.style.fontSize = promptMode.listeningStyle
+                ? '42px'
+                : item.type === 'sentence'
+                ? (promptMode.showEnglish ? '22px' : '20px')
+                : '32px';
+            hintEl.textContent = promptMode.showChinese ? chineseText : '';
+            const showHint = !!(promptMode.showChinese && chineseText);
+            hintAreaEl.style.display = showHint ? '' : 'none';
+            hintAreaEl.hidden = !showHint;
+            if (!showHint) hintEl.textContent = '';
+            const audioText = promptMode.audioText === 'chinese'
+                ? (sanitizeChineseSpeechText(chineseText) || chineseText || englishText)
+                : englishText;
+            if (audioText) {
+                Audio.setCurrentWord(audioText, promptMode.audioLang);
+            } else {
+                Audio.setCurrentWord(englishText, 'en-US');
+            }
+            if (answerToolsEl) answerToolsEl.style.display = promptMode.answerTools ? 'flex' : 'none';
+            if (promptMode.autoSpeak && audioText) Audio.speak(audioText, false, promptMode.audioLang);
+            document.getElementById('listening-controls').style.display = promptMode.listeningStyle ? 'flex' : 'none';
         }
 
         updateProgressDisplay();
@@ -656,7 +771,7 @@ const Game = (() => {
 
     // Update WPM (words per minute)
     function updateWPM() {
-        const elapsed = (Date.now() - state.startTime) / 1000 / 60; // minutes
+        const elapsed = getElapsedMs() / 1000 / 60; // minutes
         if (elapsed > 0) {
             const wpm = Math.round(state.correct / elapsed);
             document.getElementById('game-wpm').textContent = wpm;
@@ -675,19 +790,22 @@ const Game = (() => {
 
     // Timer - only starts if timeLimit > 0
     function startTimer() {
-        if (state.timeTotal <= 0) return; // No timer for unlimited mode
         if (state.timer) clearInterval(state.timer);
+        updateElapsedDisplay();
         state.timer = setInterval(() => {
             if (state.isPaused) return;
-            state.timeLeft--;
-            document.getElementById('game-timer').textContent = state.timeLeft;
+            updateElapsedDisplay();
+            if (state.timeTotal > 0) {
+                state.timeLeft--;
+                document.getElementById('game-timer').textContent = state.timeLeft;
 
-            if (state.timeLeft <= 10) {
-                document.getElementById('game-timer').style.color = 'var(--danger)';
-            }
+                if (state.timeLeft <= 10) {
+                    document.getElementById('game-timer').style.color = 'var(--danger)';
+                }
 
-            if (state.timeLeft <= 0) {
-                endGame(false);
+                if (state.timeLeft <= 0) {
+                    endGame(false);
+                }
             }
         }, 1000);
     }
@@ -706,6 +824,59 @@ const Game = (() => {
             `${state.currentIndex}/${state.totalItems}`;
     }
 
+    function refreshPrompt() {
+        if (!state.items || state.items.length === 0) return;
+        if (state.currentIndex >= state.items.length) return;
+        showCurrentItem();
+        updatePauseControls();
+    }
+
+    function showAnswerExplanation() {
+        if (!state.items || state.currentIndex >= state.items.length) return;
+        renderAnswerExplanation(state.items[state.currentIndex]);
+    }
+
+    async function reportCurrentIssue() {
+        if (!state.items || state.currentIndex >= state.items.length) return;
+        if (typeof AuthUI === 'undefined' || !AuthUI.isLoggedIn || !AuthUI.isLoggedIn()) {
+            alert('请先登录后再报错 Please login first');
+            return;
+        }
+        const item = state.items[state.currentIndex];
+        const note = prompt('请简要说明问题（可留空）\nDescribe the issue (optional):', '');
+        if (note === null) return;
+        const answerInput = document.getElementById('game-input');
+        const sourceKind = item._sourceKind
+            || (state.grade ? `grade${state.grade}` : (state.isLevelMode ? 'level' : (state.currentModule ? 'module' : 'custom')));
+        const sourceRef = item._sourceField
+            || (state.currentModule ? `module:${state.currentModule}` : (state.level ? `level:${state.level}` : ''));
+        try {
+            const res = await AuthUI.apiRequest('/me/vocab-reports', {
+                method: 'POST',
+                body: JSON.stringify({
+                    en_text: item.en || '',
+                    cn_text: item.cn || '',
+                    user_answer: answerInput ? answerInput.value.trim() : '',
+                    item_type: item.type || 'word',
+                    prompt_mode: (typeof App !== 'undefined' && App.getPromptMode) ? App.getPromptMode() : '',
+                    source_kind: sourceKind,
+                    source_unit_id: item._sourceUnitId || null,
+                    source_unit_name: item._sourceUnitName || '',
+                    source_ref: sourceRef,
+                    note: String(note || '').trim()
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                alert(data.error || '上报失败 Report failed');
+                return;
+            }
+            alert(data.message || '已上报，谢谢反馈');
+        } catch (e) {
+            alert('上报失败 Report failed');
+        }
+    }
+
     // End game
     function endGame(completed) {
         if (state.timer) {
@@ -716,7 +887,8 @@ const Game = (() => {
         const accuracy = state.correct + state.wrong > 0
             ? Math.round((state.correct / (state.correct + state.wrong)) * 100) : 0;
 
-        const timeUsed = Math.max(1, (Date.now() - state.startTime) / 1000);
+        const durationMs = getElapsedMs();
+        const timeUsed = Math.max(1, durationMs / 1000);
         const wpm = Math.round((state.correct * 60) / timeUsed);
 
         // Calculate stars (1-3)
@@ -736,7 +908,8 @@ const Game = (() => {
             totalAttempts: storageData.totalAttempts + state.correct + state.wrong,
             totalWordsTyped: storageData.totalWordsTyped + state.correct,
             gamesPlayed: storageData.gamesPlayed + 1,
-            maxCombo: Math.max(storageData.maxCombo, state.maxCombo)
+            maxCombo: Math.max(storageData.maxCombo, state.maxCombo),
+            totalTimeMs: (storageData.totalTimeMs || 0) + durationMs
         });
 
         if (state.coinsEarned > 0) Storage.addCoins(state.coinsEarned);
@@ -764,12 +937,14 @@ const Game = (() => {
 
         // Add to leaderboard
         if (state.score > 0) {
-            Storage.addLeaderboardEntry(storageData.playerName, state.score);
+            Storage.addLeaderboardEntry(storageData.playerName, state.score, {
+                durationMs,
+                accuracy
+            });
         }
 
         // Report practice session to server (if logged in)
         try {
-            const durationMs = Math.max(0, Date.now() - (state.startTime || Date.now()));
             const refId = state.isLevelMode ? state.level : (state.currentModule || 0);
             const kind = state.grade
                 ? (state.isLevelMode ? `grade${state.grade}-level` : `grade${state.grade}-random`)
@@ -789,7 +964,7 @@ const Game = (() => {
         const newBadges = checkBadges();
 
         // Show results
-        showResults(completed, stars, accuracy, wpm, newBadges);
+        showResults(completed, stars, accuracy, wpm, durationMs, newBadges);
     }
 
     // Check and award badges
@@ -853,7 +1028,7 @@ const Game = (() => {
     }
 
     // Show results page
-    function showResults(completed, stars, accuracy, wpm, newBadges) {
+    function showResults(completed, stars, accuracy, wpm, durationMs, newBadges) {
         App.showPage('page-results');
 
         // Title
@@ -875,6 +1050,7 @@ const Game = (() => {
         document.getElementById('result-score').textContent = state.score;
         document.getElementById('result-accuracy').textContent = accuracy + '%';
         document.getElementById('result-speed').textContent = wpm + ' WPM';
+        document.getElementById('result-elapsed').textContent = formatElapsedMs(durationMs);
         document.getElementById('result-combo').textContent = state.maxCombo;
         document.getElementById('result-coins').textContent = '+' + state.coinsEarned;
 
@@ -935,13 +1111,23 @@ const Game = (() => {
 
     // Pause / Resume
     function pauseGame() {
+        if (state.isPaused) return;
         state.isPaused = true;
-        document.getElementById('modal-pause').style.display = 'flex';
+        state.pauseStartedAt = Date.now();
+        updatePauseControls();
+        document.getElementById('feedback-area').textContent = '⏸️ 已暂停，点击继续后恢复计时并继续作答';
     }
 
     function resumeGame() {
+        if (!state.isPaused) return;
+        if (state.pauseStartedAt) {
+            state.pausedDurationMs += Date.now() - state.pauseStartedAt;
+            state.pauseStartedAt = null;
+        }
         state.isPaused = false;
-        document.getElementById('modal-pause').style.display = 'none';
+        updatePauseControls();
+        updateElapsedDisplay();
+        document.getElementById('feedback-area').textContent = '';
         document.getElementById('game-input').focus();
     }
 
@@ -951,6 +1137,9 @@ const Game = (() => {
             clearInterval(state.timer);
             state.timer = null;
         }
+        state.isPaused = false;
+        state.pauseStartedAt = null;
+        updatePauseControls();
         document.getElementById('modal-pause').style.display = 'none';
         App.showPage('page-home');
     }
@@ -1005,6 +1194,8 @@ const Game = (() => {
             timeLeft: opts.timeLimit || 0,
             timeTotal: opts.timeLimit || 0,
             startTime: Date.now(),
+            pausedDurationMs: 0,
+            pauseStartedAt: null,
             isPaused: false,
             isLevelMode: !!opts.isLevelMode,
             currentModule: opts.currentModule || null,
@@ -1052,6 +1243,9 @@ const Game = (() => {
         pauseGame,
         resumeGame,
         quitGame,
+        refreshPrompt,
+        showAnswerExplanation,
+        reportCurrentIssue,
         setCurrentModule,
         getLevels,
         getGradeLevels,

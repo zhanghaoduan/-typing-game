@@ -111,6 +111,31 @@ db.exec(`
         examples_json TEXT NOT NULL,
         fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS vocab_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        en_text TEXT NOT NULL,
+        cn_text TEXT DEFAULT '',
+        user_answer TEXT DEFAULT '',
+        item_type TEXT DEFAULT 'word',
+        prompt_mode TEXT DEFAULT '',
+        source_kind TEXT DEFAULT '',
+        source_unit_id INTEGER,
+        source_unit_name TEXT DEFAULT '',
+        source_ref TEXT DEFAULT '',
+        note TEXT DEFAULT '',
+        status TEXT DEFAULT 'open',
+        admin_note TEXT DEFAULT '',
+        resolved_unit_id INTEGER,
+        resolved_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_vocab_reports_status ON vocab_reports(status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_vocab_reports_en_text ON vocab_reports(en_text);
+    CREATE INDEX IF NOT EXISTS idx_vocab_reports_unit ON vocab_reports(source_unit_id);
 `);
 
 // ---- Migrations: add metadata columns to units (idempotent) ----

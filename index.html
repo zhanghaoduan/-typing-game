@@ -4,33 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>英语打字闯关 English Typing Adventure</title>
-    <link rel="stylesheet" href="css/style.css">
-    <style>
-        /* Multi-unit teacher-material proofreading (smart import result) */
-        .material-multi-head { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #eee; }
-        .material-multi-head .material-hint { color: #666; font-size: 13px; margin: 6px 0; }
-        .material-unit-block { border: 1px solid #e2e2e2; border-radius: 10px; padding: 14px; margin-bottom: 18px; background: #fafafa; }
-        .material-unit-block .proofread-section { margin-top: 10px; }
-        .material-std-badge {
-            display: inline-block; background: #1a7f37; color: #fff; font-size: 11px;
-            font-weight: 600; line-height: 1; padding: 3px 7px; border-radius: 10px;
-            margin-left: 6px; white-space: nowrap; vertical-align: middle;
-        }
-        .material-unit-block .proofread-item { align-items: center; flex-wrap: wrap; }
-        .material-ref {
-            display: none; width: 100%; margin: 4px 0 2px 34px; font-size: 12px;
-            color: #1a7f37; background: #f0f8f2; border-left: 3px solid #1a7f37;
-            padding: 4px 9px; border-radius: 4px; box-sizing: border-box;
-        }
-        .material-ref .material-ref-tag {
-            background: #1a7f37; color: #fff; font-size: 10px; padding: 1px 5px;
-            border-radius: 8px; margin-left: 4px;
-        }
-        .proofread-item:focus-within .material-ref { display: block; }
-        body.dark-mode .material-unit-block { background: #2a2a2a; border-color: #444; }
-        body.dark-mode .material-multi-head .material-hint { color: #aaa; }
-        body.dark-mode .material-ref { background: #173a26; color: #6fd99a; }
-    </style>
+    <link rel="stylesheet" href="css/style.css?v=20260621-1245">
 </head>
 <body>
     <!-- Floating dark-mode quick toggle (visible on every page) -->
@@ -105,13 +79,12 @@
                     </div>
                 </a>
 
-                <!-- Hero card: Teacher Standard Material (admin only) -->
-                <a class="home-hero-card" id="home-material-card" style="display:none;" onclick="App.showPage('page-material')">
+                <a class="home-hero-card" id="home-material-card" onclick="App.showPage('page-material')">
                     <div class="home-hero-icon">🎓</div>
                     <div class="home-hero-text">
-                        <h3>老师标准单词句子文件上传 <span class="en">Teacher Standard Material</span></h3>
-                        <p>上传老师提供的 PDF / Word / Excel 标准文件 · 自动识别单元 / 单词 / 词组 / 句子，作为标准词库供学生练习</p>
-                        <span class="home-hero-cta">📄 上传 / 管理 →</span>
+                        <h3>老师标准词库 <span class="en">Teacher Standard Library</span></h3>
+                        <p>练习老师公开的标准单词 / 词组 / 句子 · 按单元反复练习与听写</p>
+                        <span class="home-hero-cta">📚 开始练习 →</span>
                     </div>
                 </a>
 
@@ -287,6 +260,10 @@
                     <span class="info-label">准确率 Accuracy</span>
                     <span class="info-value" id="game-accuracy">100%</span>
                 </div>
+                <div class="game-info-item game-info-item-elapsed">
+                    <span class="info-label">用时 Elapsed</span>
+                    <span class="info-value" id="game-elapsed">0s</span>
+                </div>
                 <div class="game-info-item lives">
                     <span class="info-label">生命 Lives</span>
                     <span class="info-value" id="game-lives">❤️❤️❤️</span>
@@ -302,6 +279,17 @@
                 </div>
                 <span class="progress-text" id="game-progress-text">0/10</span>
             </div>
+            <div class="game-mode-toolbar">
+                <label for="game-prompt-mode">🧠 当前练习显示 / 朗读方式 Prompt Mode</label>
+                <select id="game-prompt-mode" onchange="App.setPromptMode(this.value)">
+                    <option value="bilingual_speech">中英文朗读 Bilingual + Speak</option>
+                    <option value="english_only">只显示英文 English Only</option>
+                    <option value="chinese_only">只显示中文 Chinese Only</option>
+                    <option value="english_listening">英文听力 English Listening</option>
+                    <option value="chinese_listening">中文听力 Chinese Listening</option>
+                    <option value="bilingual_silent">中英文不朗读 Bilingual Silent</option>
+                </select>
+            </div>
         </div>
 
         <div class="game-area">
@@ -315,6 +303,10 @@
                 <button class="btn btn-primary" onclick="Audio.replayCurrentWord()">🔊 再听一次 Replay</button>
                 <button class="btn btn-small" onclick="Audio.replayCurrentWord(true)">🐢 慢速 Slow</button>
             </div>
+            <div class="answer-tools" id="answer-tools" style="display:none;">
+                <button class="btn btn-small btn-outline" id="btn-show-answer" onclick="Game.showAnswerExplanation()">💡 显示答案和解释</button>
+                <button class="btn btn-small btn-outline" id="btn-report-vocab" onclick="Game.reportCurrentIssue()">🚩 报错 / Report</button>
+            </div>
             <div class="input-area">
                 <input type="text" id="game-input" class="game-input" placeholder="在这里输入... Type here..."
                        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
@@ -326,7 +318,8 @@
         </div>
 
         <div class="game-footer">
-            <button class="btn btn-small btn-outline" onclick="Game.pauseGame()">⏸️ 暂停 Pause</button>
+            <button class="btn btn-small btn-outline" id="btn-pause-game" onclick="Game.pauseGame()">⏸️ 暂停 Pause</button>
+            <button class="btn btn-small btn-outline" id="btn-resume-game" onclick="Game.resumeGame()" style="display:none;">▶️ 继续 Resume</button>
             <button class="btn btn-small btn-outline" onclick="Game.quitGame()">🚪 退出 Quit</button>
         </div>
     </div>
@@ -359,6 +352,10 @@
                 <div class="result-stat">
                     <span class="result-label">速度 Speed</span>
                     <span class="result-value" id="result-speed">0 WPM</span>
+                </div>
+                <div class="result-stat">
+                    <span class="result-label">用时 Elapsed</span>
+                    <span class="result-value" id="result-elapsed">0s</span>
                 </div>
                 <div class="result-stat">
                     <span class="result-label">最高连击 Max Combo</span>
@@ -454,6 +451,17 @@
                 </select>
             </div>
             <div class="setting-group">
+                <label>🧠 出题模式 Prompt Mode</label>
+                <select id="setting-prompt-mode" onchange="App.setPromptMode(this.value)">
+                    <option value="bilingual_speech">中英文朗读 Bilingual + Speak</option>
+                    <option value="english_only">只显示英文 English Only</option>
+                    <option value="chinese_only">只显示中文 Chinese Only</option>
+                    <option value="english_listening">英文听力 English Listening</option>
+                    <option value="chinese_listening">中文听力 Chinese Listening</option>
+                    <option value="bilingual_silent">中英文不朗读 Bilingual Silent</option>
+                </select>
+            </div>
+            <div class="setting-group">
                 <label>🔔 音效 Sound Effects</label>
                 <select id="setting-sfx" onchange="Audio.setSFX(this.value)">
                     <option value="on" selected>开 On</option>
@@ -487,7 +495,8 @@
                 <button class="admin-tab-btn active" data-admin-tab="units" onclick="App.showAdminTab('units')">📚 单元管理 Units</button>
                 <button class="admin-tab-btn" data-admin-tab="users" onclick="App.showAdminTab('users')">👥 用户管理 Users</button>
                 <button class="admin-tab-btn" data-admin-tab="rankings" onclick="App.showAdminTab('rankings')">🏆 排行榜 Rankings</button>
-                <button class="admin-tab-btn" data-admin-tab="material" onclick="App.showPage('page-material')">🎓 智能录入 Smart Import</button>
+                <button class="admin-tab-btn" data-admin-tab="vocab-review" onclick="App.showAdminTab('vocab-review')">🩺 词库核对 Vocab Review</button>
+                <button class="admin-tab-btn" data-admin-tab="material" onclick="App.showAdminTab('material')">🎓 智能录入 Smart Import</button>
             </div>
             <div id="admin-tab-units" class="admin-tab-content active">
                 <div class="admin-section">
@@ -519,10 +528,29 @@
                     </div>
                 </div>
             </div>
+            <div id="admin-tab-vocab-review" class="admin-tab-content" style="display:none;">
+                <div class="admin-section">
+                    <h3>🩺 词库自动核对 Automatic Audit</h3>
+                    <p class="proofread-hint">自动对比当前词库、有道/词典翻译缓存，明显不一致的条目会标红，便于老师快速修订。</p>
+                    <div class="admin-rank-tabs">
+                        <button class="btn btn-small btn-outline" onclick="App.runVocabAudit('public')">核对公开词库 Audit Public</button>
+                        <button class="btn btn-small btn-outline" onclick="App.runVocabAudit('all')">核对全部词库 Audit All</button>
+                    </div>
+                    <div id="admin-vocab-audit-list">
+                        <p class="empty-hint">点击上方按钮开始核对。Click above to start audit.</p>
+                    </div>
+                </div>
+                <div class="admin-section">
+                    <h3>🚩 用户报错 User Reports</h3>
+                    <div id="admin-vocab-reports-list">
+                        <p class="empty-hint">加载中... Loading...</p>
+                    </div>
+                </div>
+            </div>
             <div id="admin-tab-material" class="admin-tab-content" style="display:none;">
                 <div class="admin-section">
-                    <p class="proofread-hint">该功能已移至首页「老师标准单词句子文件上传」入口。<br>This feature has moved to the home page entry "Teacher Standard Material".</p>
-                    <button class="btn btn-primary" onclick="App.showPage('page-material')">前往 老师标准材料 →</button>
+                    <p class="proofread-hint">该功能已移至首页「老师标准词库 / Teacher Standard Library」入口。<br>This feature has moved to the home page entry "Teacher Standard Library".</p>
+                    <button class="btn btn-primary" onclick="App.showPage('page-material')">前往 老师标准词库 →</button>
                 </div>
             </div>
         </div>
@@ -532,29 +560,27 @@
     <div id="page-material" class="page">
         <div class="page-header">
             <button class="btn-back" onclick="App.showPage('page-home')">← 返回</button>
-            <h2 id="material-page-title">🎓 老师标准单词句子文件上传 Teacher Standard Material</h2>
+            <h2 id="material-page-title">🎓 老师标准词库 Teacher Standard Library</h2>
         </div>
         <div class="upload-container">
-            <div class="upload-instructions" id="material-admin-instructions">
+            <div class="upload-instructions" id="material-admin-instructions" style="display:none;">
                 <p>📌 上传老师提供的标准材料（PDF / Word / Excel / CSV / TXT），系统会自动提取并智能生成单词 / 词组 / 句子，作为<strong>标准词库</strong>供学生练习。文件中已有中文翻译的以文件为准；没有翻译的将自动查询补全。</p>
                 <p>Upload teacher standard material. The system extracts and generates words / phrases / sentences as the standard library. File-provided translations are authoritative; missing ones are looked up automatically.</p>
                 <p class="upload-hint">例如 / e.g. <code>2025春七下新外研版英语单词默写纸答案Unit1-6.pdf</code></p>
             </div>
-            <div class="upload-instructions" id="material-student-hint" style="display:none;">
+            <div class="upload-instructions" id="material-student-hint">
                 <p>📚 这里是老师公开的<strong>标准词库</strong>，点击下面任意单元即可练习单词 / 词组 / 句子，或进行听写测试。</p>
                 <p>This is the teacher's published standard library. Tap any unit below to practice words / phrases / sentences or take a listening test.</p>
             </div>
 
-            <!-- Saved Standard Units Section -->
             <div class="saved-units-section">
-                <h3 id="material-list-title">📂 已保存的标准单元 Saved Standard Units</h3>
+                <h3 id="material-list-title">📚 老师公开的标准词库 Teacher Public Library</h3>
                 <div id="material-saved-list">
-                    <p class="empty-hint">暂无标准材料，请在下方上传生成 No standard material yet</p>
+                    <p class="empty-hint">加载中... Loading...</p>
                 </div>
             </div>
 
-            <!-- Upload Area (admin only) -->
-            <div id="material-admin-area">
+            <div id="material-admin-area" style="display:none;">
                 <hr class="upload-divider">
                 <h3>📤 上传标准文件 Upload Standard File</h3>
                 <div class="material-upload-row">
@@ -643,11 +669,11 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
     <!-- Scripts -->
-    <script src="js/audio.js"></script>
-    <script src="js/storage.js"></script>
-    <script src="js/auth-ui.js"></script>
-    <script src="js/game.js"></script>
-    <script src="js/ocr.js"></script>
-    <script src="js/app.js"></script>
+    <script src="js/audio.js?v=20260621-1245"></script>
+    <script src="js/storage.js?v=20260621-1245"></script>
+    <script src="js/auth-ui.js?v=20260621-1245"></script>
+    <script src="js/game.js?v=20260621-1245"></script>
+    <script src="js/ocr.js?v=20260621-1245"></script>
+    <script src="js/app.js?v=20260621-1245"></script>
 </body>
 </html>

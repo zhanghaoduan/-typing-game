@@ -116,7 +116,20 @@ const Audio = (() => {
         return null;
     }
 
-    function speak(text, slow = false) {
+    function detectSpeechLang(text, preferredLang = 'auto') {
+        if (preferredLang && preferredLang !== 'auto') return preferredLang;
+        return /[\u3400-\u9FFF]/.test(String(text || '')) ? 'zh-CN' : 'en-US';
+    }
+
+    function findVoiceForLang(lang) {
+        if (!voices.length) return null;
+        if (lang.startsWith('zh')) {
+            return voices.find(v => v.lang.startsWith('zh')) || null;
+        }
+        return findAmericanVoice();
+    }
+
+    function speak(text, slow = false, lang = 'auto') {
         if (!text) return;
         if (!('speechSynthesis' in window)) return;
 
@@ -139,7 +152,7 @@ const Audio = (() => {
             speechSynthesis.cancel();
             // Longer delay after hard reset
             speakTimer = setTimeout(() => {
-                _doSpeak(text, slow);
+                _doSpeak(text, slow, lang);
             }, 500);
             return;
         }
@@ -148,33 +161,33 @@ const Audio = (() => {
         if (speechSynthesis.speaking || speechSynthesis.pending) {
             speechSynthesis.cancel();
             speakTimer = setTimeout(() => {
-                _doSpeak(text, slow);
+                _doSpeak(text, slow, lang);
             }, 300);
         } else {
             speakTimer = setTimeout(() => {
-                _doSpeak(text, slow);
+                _doSpeak(text, slow, lang);
             }, 50);
         }
     }
 
-    function _doSpeak(text, slow) {
+    function _doSpeak(text, slow, lang = 'auto') {
         // Safety: resume in case it's paused
         speechSynthesis.resume();
 
+        const speechLang = detectSpeechLang(text, lang);
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = slow ? 0.55 : speechRate;
         utterance.pitch = 1.0;
         utterance.volume = 1.0;
-        utterance.lang = 'en-US';
+        utterance.lang = speechLang;
 
-        // Select best American voice
-        const voice = findAmericanVoice();
+        const voice = findVoiceForLang(speechLang);
         if (voice) {
             utterance.voice = voice;
         }
 
-        // If user manually chose a voice in settings, use that instead
-        if (currentVoice !== null) {
+        // If user manually chose a voice in settings, use that instead for English.
+        if (currentVoice !== null && speechLang.startsWith('en')) {
             const englishVoices = voices.filter(v => v.lang.startsWith('en'));
             if (englishVoices[currentVoice]) {
                 utterance.voice = englishVoices[currentVoice];
@@ -204,20 +217,20 @@ const Audio = (() => {
     }
 
     // Current word for replay
-    let currentWord = '';
+    let currentSpeech = { text: '', lang: 'auto' };
 
-    function setCurrentWord(word) {
-        currentWord = word;
+    function setCurrentWord(word, lang = 'auto') {
+        currentSpeech = { text: word || '', lang };
     }
 
     function replayCurrentWord(slow = false) {
-        if (!currentWord) return;
-        console.log('[Audio] Replay requested:', currentWord, 'slow:', slow);
+        if (!currentSpeech.text) return;
+        console.log('[Audio] Replay requested:', currentSpeech.text, 'slow:', slow, 'lang:', currentSpeech.lang);
         // Force reset before replay to ensure it works
         speechSynthesis.cancel();
         speakCount = 0; // Reset counter so it doesn't trigger hard reset
         setTimeout(() => {
-            _doSpeak(currentWord, slow);
+            _doSpeak(currentSpeech.text, slow, currentSpeech.lang);
         }, 400);
     }
 

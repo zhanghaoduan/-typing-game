@@ -481,14 +481,13 @@ body {
 /* ---------- GAME PAGE ---------- */
 .game-header {
     width: 100%;
-    max-width: 800px;
+    max-width: 1180px;
 }
 
 .game-info-bar {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
     gap: 12px;
-    justify-content: center;
     padding: 16px;
     background: var(--bg-card);
     border-radius: var(--radius);
@@ -500,7 +499,14 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    min-width: 80px;
+    min-width: 0;
+    padding: 4px 6px;
+    border-radius: 12px;
+}
+
+.game-info-item-elapsed {
+    background: rgba(79, 70, 229, 0.06);
+    border: 1px solid rgba(79, 70, 229, 0.12);
 }
 
 .info-label {
@@ -522,6 +528,32 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
+}
+
+.game-mode-toolbar {
+    margin-top: 12px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.game-mode-toolbar label {
+    font-size: 14px;
+    color: var(--text-light);
+    font-weight: 600;
+    text-align: center;
+}
+
+.game-mode-toolbar select {
+    min-width: 320px;
+    max-width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--bg-card);
+    color: var(--text);
 }
 
 .progress-bar {
@@ -599,6 +631,14 @@ body {
     align-items: center;
 }
 
+.answer-tools {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
 .input-area {
     display: flex;
     gap: 12px;
@@ -646,6 +686,8 @@ body {
 
 .feedback-correct { color: var(--success); animation: popIn 0.3s; }
 .feedback-wrong { color: var(--danger); animation: popIn 0.3s; font-size: 1.1rem; line-height: 1.8; }
+.feedback-answer { color: var(--text); animation: popIn 0.3s; line-height: 1.8; }
+.answer-cn { color: var(--warning); font-weight: 700; }
 
 /* Diff highlighting for wrong answers */
 .diff-label { color: #aaa; font-size: 0.9em; }
@@ -818,6 +860,7 @@ body {
 .lb-rank.bronze { color: #d97706; }
 .lb-name { flex: 1; font-weight: 600; }
 .lb-score { font-weight: 700; color: var(--primary); }
+.lb-time { color: var(--text-light); font-size: 13px; min-width: 72px; text-align: right; }
 
 /* ---------- REVIEW PAGE ---------- */
 .review-content {
@@ -1478,8 +1521,9 @@ body {
 
 /* ---------- RESPONSIVE ---------- */
 @media (max-width: 768px) {
-    .game-info-bar { gap: 8px; padding: 12px; }
-    .game-info-item { min-width: 60px; }
+    .game-info-bar { gap: 8px; padding: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .game-info-item { min-width: 0; }
+    .game-mode-toolbar select { min-width: 0; width: 100%; }
     .info-value { font-size: 16px; }
     .target-text { font-size: 24px; }
     .game-input { font-size: 18px; padding: 12px 16px; }
@@ -1706,6 +1750,70 @@ body.theme-dark .user-info .btn-outline:hover {
 }
 .admin-users-table th, .admin-rankings-table th, .profile-history-table th {
     background: #f7fafc; font-weight: bold;
+}
+
+.vocab-review-card {
+    background: var(--bg-card, #fff);
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+}
+
+.vocab-review-card-open {
+    border-left: 5px solid #ef4444;
+}
+
+.vocab-review-card-done {
+    border-left: 5px solid #22c55e;
+}
+
+.vocab-review-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.vocab-review-status {
+    font-size: 12px;
+    font-weight: 700;
+    color: #b91c1c;
+    background: #fee2e2;
+    border-radius: 999px;
+    padding: 4px 10px;
+    white-space: nowrap;
+}
+
+.vocab-review-card-done .vocab-review-status {
+    color: #166534;
+    background: #dcfce7;
+}
+
+.vocab-review-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    font-size: 13px;
+    color: var(--text-light, #64748b);
+    margin-bottom: 8px;
+}
+
+.vocab-review-note {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    color: #9a3412;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    line-height: 1.6;
+}
+
+.vocab-review-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 .profile-content { max-width: 900px; margin: 0 auto; padding: 20px; }

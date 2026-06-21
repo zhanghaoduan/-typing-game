@@ -9,7 +9,7 @@ const Storage = (() => {
         'stars', 'coins', 'streak', 'lastPlayDate', 'levelsUnlocked',
         'levelStars', 'levelScores', 'badges',
         'totalCorrect', 'totalAttempts', 'totalWordsTyped',
-        'gamesPlayed', 'maxCombo'
+        'gamesPlayed', 'maxCombo', 'totalTimeMs'
     ];
     let _syncTimer = null;
     let _suppressSync = false;
@@ -32,6 +32,7 @@ const Storage = (() => {
         totalWordsTyped: 0,
         gamesPlayed: 0,
         maxCombo: 0,
+        totalTimeMs: 0,
         modulesCompleted: []
     };
 
@@ -69,7 +70,7 @@ const Storage = (() => {
         levelStars: 'level_stars', levelScores: 'level_scores', badges: 'badges',
         totalCorrect: 'total_correct', totalAttempts: 'total_attempts',
         totalWordsTyped: 'total_words_typed', gamesPlayed: 'games_played',
-        maxCombo: 'max_combo'
+        maxCombo: 'max_combo', totalTimeMs: 'total_time_ms'
     };
 
     async function syncToServer() {
@@ -111,7 +112,8 @@ const Storage = (() => {
                 totalAttempts: s.total_attempts || 0,
                 totalWordsTyped: s.total_words_typed || 0,
                 gamesPlayed: s.games_played || 0,
-                maxCombo: s.max_combo || 0
+                maxCombo: s.max_combo || 0,
+                totalTimeMs: s.total_time_ms || 0
             };
             _suppressSync = true;
             _writeLocal(merged);
@@ -236,15 +238,22 @@ const Storage = (() => {
     }
 
     // Leaderboard
-    function addLeaderboardEntry(name, score) {
+    function addLeaderboardEntry(name, score, meta = {}) {
         const data = getData();
         data.leaderboard.push({
             name: name || data.playerName,
             score,
-            date: new Date().toLocaleDateString()
+            date: new Date().toLocaleDateString(),
+            durationMs: Number(meta.durationMs) || 0,
+            accuracy: Number(meta.accuracy) || 0
         });
-        // Sort by score descending, keep top 20
-        data.leaderboard.sort((a, b) => b.score - a.score);
+        // Sort by score descending, then by faster completion time
+        data.leaderboard.sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            const aDuration = a.durationMs > 0 ? a.durationMs : Number.MAX_SAFE_INTEGER;
+            const bDuration = b.durationMs > 0 ? b.durationMs : Number.MAX_SAFE_INTEGER;
+            return aDuration - bDuration;
+        });
         data.leaderboard = data.leaderboard.slice(0, 20);
         saveData(data);
     }

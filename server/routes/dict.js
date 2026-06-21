@@ -197,3 +197,5 @@ router.post('/examples', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.lookupWord = lookupWord;
+module.exports.getExamples = getExamples;

@@ -111,4 +111,29 @@ router.put('/profile', (req, res) => {
     res.json({ user: { id: u.id, username: u.username, role: u.role, grade: u.grade || '' } });
 });
 
+// POST /api/me/vocab-reports
+router.post('/vocab-reports', (req, res) => {
+    const body = req.body || {};
+    const enText = String(body.en_text || '').trim();
+    if (!enText) return res.status(400).json({ error: 'en_text required' });
+    const result = db.prepare(`
+        INSERT INTO vocab_reports
+        (user_id, en_text, cn_text, user_answer, item_type, prompt_mode, source_kind, source_unit_id, source_unit_name, source_ref, note)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+        req.user.id,
+        enText,
+        String(body.cn_text || '').trim(),
+        String(body.user_answer || '').trim(),
+        String(body.item_type || 'word').trim(),
+        String(body.prompt_mode || '').trim(),
+        String(body.source_kind || '').trim(),
+        body.source_unit_id ? Number(body.source_unit_id) : null,
+        String(body.source_unit_name || '').trim(),
+        String(body.source_ref || '').trim(),
+        String(body.note || '').trim()
+    );
+    res.json({ success: true, id: result.lastInsertRowid, message: '已上报词库问题 Vocabulary issue reported' });
+});
+
 module.exports = router;

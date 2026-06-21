@@ -263,6 +263,7 @@ const App = (() => {
                 <span class="lb-rank ${rankClass}">${rankText}</span>
                 <span class="lb-name">${entry.name}</span>
                 <span class="lb-score">${entry.score} pts</span>
+                <span class="lb-time">${entry.durationMs ? `⏱ ${formatDuration(entry.durationMs)}` : ''}</span>
             `;
             container.appendChild(div);
         });
@@ -426,13 +427,40 @@ const App = (() => {
         const savedRate = localStorage.getItem('typing_game_rate');
         const savedSFX = localStorage.getItem('typing_game_sfx');
         const savedTheme = localStorage.getItem('typing_game_theme');
+        const savedPromptMode = getPromptMode();
 
         if (savedRate) document.getElementById('setting-rate').value = savedRate;
         if (savedSFX) document.getElementById('setting-sfx').value = savedSFX;
+        const promptModeEl = document.getElementById('setting-prompt-mode');
+        if (promptModeEl) promptModeEl.value = savedPromptMode;
+        const gamePromptModeEl = document.getElementById('game-prompt-mode');
+        if (gamePromptModeEl) gamePromptModeEl.value = savedPromptMode;
         if (savedTheme) {
             document.getElementById('setting-theme').value = savedTheme;
             setTheme(savedTheme);
         }
+    }
+
+    function getPromptMode() {
+        return localStorage.getItem('typing_game_prompt_mode') || 'bilingual_speech';
+    }
+
+    function setPromptMode(mode) {
+        const allowed = new Set([
+            'bilingual_speech',
+            'english_only',
+            'chinese_only',
+            'english_listening',
+            'chinese_listening',
+            'bilingual_silent'
+        ]);
+        const nextMode = allowed.has(mode) ? mode : 'bilingual_speech';
+        localStorage.setItem('typing_game_prompt_mode', nextMode);
+        const sel = document.getElementById('setting-prompt-mode');
+        if (sel) sel.value = nextMode;
+        const gameSel = document.getElementById('game-prompt-mode');
+        if (gameSel) gameSel.value = nextMode;
+        if (typeof Game !== 'undefined' && Game.refreshPrompt) Game.refreshPrompt();
     }
 
     // Set theme
@@ -460,16 +488,15 @@ const App = (() => {
         container.innerHTML = '<p class="empty-hint">加载中... Loading...</p>';
 
         try {
-            const res = await AuthUI.apiRequest('/units/admin/all');
-            const data = await res.json();
+            const units = await fetchAdminUnits(true);
 
-            if (!data.units || data.units.length === 0) {
+            if (!units || units.length === 0) {
                 container.innerHTML = '<p class="empty-hint">暂无单元 No units yet</p>';
                 return;
             }
 
             container.innerHTML = '';
-            data.units.forEach(unit => {
+            units.forEach(unit => {
                 const totalItems = unit.words.length + unit.phrases.length + unit.sentences.length;
                 const div = document.createElement('div');
                 div.className = 'admin-unit-card';
@@ -498,6 +525,7 @@ const App = (() => {
             const res = await AuthUI.apiRequest(`/units/admin/publish/${id}`, { method: 'POST' });
             const data = await res.json();
             alert(data.message);
+            adminUnitsCache = [];
             renderAdminPanel();
         } catch (e) {
             alert('操作失败 Operation failed');
@@ -510,6 +538,7 @@ const App = (() => {
             const res = await AuthUI.apiRequest(`/units/admin/toggle-public/${id}`, { method: 'POST' });
             const data = await res.json();
             alert(data.message);
+            adminUnitsCache = [];
             renderAdminPanel();
         } catch (e) {
             alert('操作失败 Operation failed');
@@ -521,6 +550,7 @@ const App = (() => {
         if (!confirm('确认删除？ Confirm delete?')) return;
         try {
             await AuthUI.apiRequest(`/units/${id}`, { method: 'DELETE' });
+            adminUnitsCache = [];
             renderAdminPanel();
         } catch (e) {
             alert('删除失败 Delete failed');
@@ -624,6 +654,7 @@ const App = (() => {
         if (tabName === 'units') renderAdminPanel();
         else if (tabName === 'users') renderAdminUsers();
         else if (tabName === 'rankings') renderAdminRankings('score');
+        else if (tabName === 'vocab-review') renderAdminVocabReview();
         else if (tabName === 'material') setupMaterialTab();
     }
 
@@ -732,6 +763,242 @@ const App = (() => {
             container.innerHTML = html;
         } catch (e) {
             container.innerHTML = '<p class="empty-hint">加载失败 Failed to load</p>';
+        }
+    }
+
+    let adminUnitsCache = [];
+
+    async function fetchAdminUnits(forceRefresh) {
+        if (!forceRefresh && adminUnitsCache.length) return adminUnitsCache;
+        const res = await AuthUI.apiRequest('/units/admin/all');
+        const data = await res.json();
+        adminUnitsCache = data.units || [];
+        return adminUnitsCache;
+    }
+
+    function findMatchingUnitEntries(report, units) {
+        const enNeedle = String(report.en_text || '').trim().toLowerCase();
+        if (!enNeedle) return [];
+        const wantedTypes = report.item_type === 'phrase'
+            ? ['phrases']
+            : report.item_type === 'sentence'
+            ? ['sentences']
+            : ['words', 'phrases', 'sentences'];
+        const matches = [];
+        units.forEach(unit => {
+            if (report.source_unit_id && String(unit.id) !== String(report.source_unit_id)) return;
+            wantedTypes.forEach(field => {
+                (unit[field] || []).forEach((item, index) => {
+                    if (String(item.en || '').trim().toLowerCase() === enNeedle) {
+                        matches.push({ unitId: unit.id, unitName: unit.name, field, index, currentCn: item.cn || '' });
+                    }
+                });
+            });
+        });
+        return matches;
+    }
+
+    async function renderAdminVocabReview() {
+        const container = document.getElementById('admin-vocab-reports-list');
+        if (!container) return;
+        container.innerHTML = '<p class="empty-hint">加载中... Loading...</p>';
+        try {
+            const [units, reportsRes] = await Promise.all([
+                fetchAdminUnits(true),
+                AuthUI.apiRequest('/admin/vocab-reports?status=all')
+            ]);
+            const data = await reportsRes.json();
+            const reports = data.reports || [];
+            if (!reports.length) {
+                container.innerHTML = '<p class="empty-hint">暂无报错记录 No reports</p>';
+                return;
+            }
+            container.innerHTML = reports.map(report => {
+                const matches = findMatchingUnitEntries(report, units);
+                const firstMatch = matches[0];
+                const statusClass = report.status === 'open' ? 'vocab-review-card-open' : 'vocab-review-card-done';
+                const statusLabel = report.status === 'open' ? '待处理 Open' : report.status === 'ignored' ? '已忽略 Ignored' : '已解决 Resolved';
+                const matchText = firstMatch
+                    ? `📚 ${escapeHtml(firstMatch.unitName)} / ${escapeHtml(firstMatch.field)}`
+                    : '⚠️ 未自动定位到词条';
+                return `<div class="vocab-review-card ${statusClass}">
+                    <div class="vocab-review-head">
+                        <strong>${escapeHtml(report.en_text)}</strong>
+                        <span class="vocab-review-status">${statusLabel}</span>
+                    </div>
+                    <div class="vocab-review-meta">
+                        <span>中文：${escapeHtml(report.cn_text || '-')}</span>
+                        <span>类型：${escapeHtml(report.item_type || 'word')}</span>
+                        <span>用户：${escapeHtml(report.username || '')}</span>
+                        <span>时间：${escapeHtml(report.created_at || '')}</span>
+                    </div>
+                    <div class="vocab-review-note">${escapeHtml(report.note || '未填写说明 No note')}</div>
+                    <div class="vocab-review-meta">
+                        <span>${matchText}</span>
+                        ${report.source_unit_name ? `<span>来源：${escapeHtml(report.source_unit_name)}</span>` : ''}
+                    </div>
+                    <div class="vocab-review-actions">
+                        ${firstMatch ? `<button class="btn btn-small btn-outline" onclick="App.fixVocabReport(${report.id})">✏️ 修改对应词条</button>` : ''}
+                        <button class="btn btn-small btn-outline" onclick="App.resolveVocabReport(${report.id}, 'resolved')">✅ 标记已解决</button>
+                        <button class="btn btn-small btn-outline" onclick="App.resolveVocabReport(${report.id}, 'ignored')">🙈 忽略</button>
+                        ${report.status !== 'open' ? `<button class="btn btn-small btn-outline" onclick="App.resolveVocabReport(${report.id}, 'open')">↩️ 恢复待处理</button>` : ''}
+                    </div>
+                </div>`;
+            }).join('');
+        } catch (e) {
+            container.innerHTML = '<p class="empty-hint">加载失败 Failed to load</p>';
+        }
+    }
+
+    async function resolveVocabReport(reportId, status) {
+        const adminNote = status === 'ignored'
+            ? (prompt('可选：输入忽略原因 Optional note') || '')
+            : '';
+        try {
+            const res = await AuthUI.apiRequest(`/admin/vocab-reports/${reportId}/resolve`, {
+                method: 'POST',
+                body: JSON.stringify({ status, admin_note: adminNote })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                alert(data.error || '操作失败 Operation failed');
+                return;
+            }
+            renderAdminVocabReview();
+        } catch (e) {
+            alert('操作失败 Operation failed');
+        }
+    }
+
+    async function updateUnitEntryTranslation(unitId, field, index, newCn, relatedReportId) {
+        const units = await fetchAdminUnits();
+        const unit = units.find(u => String(u.id) === String(unitId));
+        if (!unit) {
+            alert('未找到对应单元 Unit not found');
+            return;
+        }
+        const payload = {
+            name: unit.name,
+            words: Array.isArray(unit.words) ? unit.words.map(item => ({ ...item })) : [],
+            phrases: Array.isArray(unit.phrases) ? unit.phrases.map(item => ({ ...item })) : [],
+            sentences: Array.isArray(unit.sentences) ? unit.sentences.map(item => ({ ...item })) : [],
+            publisher: unit.publisher || '',
+            grade: unit.grade || '',
+            book: unit.book || '',
+            unit_no: unit.unit_no || 0
+        };
+        if (!payload[field] || !payload[field][index]) {
+            alert('未找到对应词条 Entry not found');
+            return;
+        }
+        payload[field][index].cn = newCn;
+        const res = await AuthUI.apiRequest(`/units/${unitId}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            alert(data.error || '保存失败 Save failed');
+            return;
+        }
+        adminUnitsCache = [];
+        await fetchAdminUnits(true);
+        if (relatedReportId) {
+            await AuthUI.apiRequest(`/admin/vocab-reports/${relatedReportId}/resolve`, {
+                method: 'POST',
+                body: JSON.stringify({ status: 'resolved', resolved_unit_id: unitId })
+            });
+        }
+        renderAdminVocabReview();
+    }
+
+    async function fixVocabReport(reportId) {
+        try {
+            const reportsRes = await AuthUI.apiRequest('/admin/vocab-reports?status=all');
+            const reportsData = await reportsRes.json();
+            const report = (reportsData.reports || []).find(item => item.id === reportId);
+            if (!report) {
+                alert('未找到报错记录 Report not found');
+                return;
+            }
+            const units = await fetchAdminUnits();
+            const matches = findMatchingUnitEntries(report, units);
+            if (!matches.length) {
+                alert('未自动定位到对应词条，请先在单元管理中手动核对。');
+                return;
+            }
+            const match = matches[0];
+            const nextCn = prompt(
+                `修改 ${report.en_text} 的中文释义\nEdit translation for ${report.en_text}\n\n当前：${match.currentCn || '(空)'}\n上报：${report.cn_text || '(空)'}\n说明：${report.note || '(无)'}`,
+                match.currentCn || report.cn_text || ''
+            );
+            if (nextCn === null) return;
+            await updateUnitEntryTranslation(match.unitId, match.field, match.index, nextCn.trim(), report.id);
+        } catch (e) {
+            alert('处理失败 Operation failed');
+        }
+    }
+
+    async function runVocabAudit(scope) {
+        const container = document.getElementById('admin-vocab-audit-list');
+        if (!container) return;
+        container.innerHTML = '<p class="empty-hint">核对中... Auditing...</p>';
+        try {
+            const res = await AuthUI.apiRequest(`/admin/vocab-audit?scope=${encodeURIComponent(scope || 'public')}&limit=80&suspiciousOnly=1`);
+            const data = await res.json();
+            const items = data.items || [];
+            if (!items.length) {
+                container.innerHTML = '<p class="empty-hint">暂未发现明显异常 No obvious issues found</p>';
+                return;
+            }
+            container.innerHTML = items.map(item => {
+                const dictText = (item.references && item.references.dictionary || [])
+                    .map(ref => `${ref.pos ? ref.pos + '. ' : ''}${ref.def_cn || ''}`)
+                    .filter(Boolean)
+                    .join('；');
+                const refText = [dictText, item.references && item.references.textbookTranslation].filter(Boolean).join(' / ');
+                return `<div class="vocab-review-card vocab-review-card-open">
+                    <div class="vocab-review-head">
+                        <strong>${escapeHtml(item.en)}</strong>
+                        <span class="vocab-review-status">疑似问题 Suspected</span>
+                    </div>
+                    <div class="vocab-review-meta">
+                        <span>当前：${escapeHtml(item.cn || '(空)')}</span>
+                        <span>单元：${escapeHtml(item.unitName || '')}</span>
+                        <span>类别：${escapeHtml(item.field || '')}</span>
+                    </div>
+                    <div class="vocab-review-note">${escapeHtml(refText || '暂无词典参考 No reference')}</div>
+                    <div class="vocab-review-meta">
+                        <span>${escapeHtml((item.reasons || []).join('；') || '')}</span>
+                    </div>
+                    <div class="vocab-review-actions">
+                        <button class="btn btn-small btn-outline" onclick="App.fixVocabAuditEntry(${item.unitId}, '${item.field}', ${item.index})">✏️ 修改</button>
+                    </div>
+                </div>`;
+            }).join('');
+        } catch (e) {
+            container.innerHTML = '<p class="empty-hint">核对失败 Audit failed</p>';
+        }
+    }
+
+    async function fixVocabAuditEntry(unitId, field, index) {
+        try {
+            const units = await fetchAdminUnits();
+            const unit = units.find(item => String(item.id) === String(unitId));
+            const entry = unit && unit[field] && unit[field][index];
+            if (!unit || !entry) {
+                alert('未找到对应词条 Entry not found');
+                return;
+            }
+            const nextCn = prompt(
+                `修改 ${entry.en} 的中文释义\nEdit translation for ${entry.en}\n\n当前：${entry.cn || '(空)'}`,
+                entry.cn || ''
+            );
+            if (nextCn === null) return;
+            await updateUnitEntryTranslation(unitId, field, index, nextCn.trim());
+            await runVocabAudit('public');
+        } catch (e) {
+            alert('保存失败 Save failed');
         }
     }
 
@@ -1342,13 +1609,13 @@ const App = (() => {
         if (!unit) return;
         let items = [];
         if (type === 'words' || type === 'all' || type === 'listening') {
-            (unit.words || []).forEach(w => items.push({ type: 'word', en: w.en, cn: w.cn || '(自定义)', difficulty: w.difficulty || 1 }));
+            (unit.words || []).forEach(w => items.push({ type: 'word', en: w.en, cn: w.cn || '(自定义)', difficulty: w.difficulty || 1, _sourceUnitId: unit.id, _sourceUnitName: unit.name, _sourceKind: 'material', _sourceField: 'words' }));
         }
         if (type === 'phrases' || type === 'all' || type === 'listening') {
-            (unit.phrases || []).forEach(p => items.push({ type: 'phrase', en: p.en, cn: p.cn || '(自定义)', difficulty: p.difficulty || 2 }));
+            (unit.phrases || []).forEach(p => items.push({ type: 'phrase', en: p.en, cn: p.cn || '(自定义)', difficulty: p.difficulty || 2, _sourceUnitId: unit.id, _sourceUnitName: unit.name, _sourceKind: 'material', _sourceField: 'phrases' }));
         }
         if (type === 'sentences' || type === 'all') {
-            (unit.sentences || []).forEach(s => items.push({ type: 'sentence', en: s.en, cn: s.cn || '(自定义)', difficulty: s.difficulty || 3 }));
+            (unit.sentences || []).forEach(s => items.push({ type: 'sentence', en: s.en, cn: s.cn || '(自定义)', difficulty: s.difficulty || 3, _sourceUnitId: unit.id, _sourceUnitName: unit.name, _sourceKind: 'material', _sourceField: 'sentences' }));
         }
         if (items.length === 0) { alert('该类别没有内容 No content in this category'); return; }
         for (let i = items.length - 1; i > 0; i--) {
@@ -1393,6 +1660,8 @@ const App = (() => {
         updateHomeStats,
         renderReview,
         setTheme,
+        setPromptMode,
+        getPromptMode,
         renderAdminPanel,
         publishUnit,
         togglePublic,
@@ -1403,6 +1672,11 @@ const App = (() => {
         adminResetPassword,
         adminDeleteUser,
         renderAdminRankings,
+        renderAdminVocabReview,
+        runVocabAudit,
+        fixVocabAuditEntry,
+        resolveVocabReport,
+        fixVocabReport,
         generateMaterial,
         saveMaterialUnit,
         saveOneMaterialUnit,
