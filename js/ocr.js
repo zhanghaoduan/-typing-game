@@ -761,6 +761,8 @@ const ImageOCR = (() => {
         if (!value) return 'Unknown OCR';
         if (value === 'tesseract') return 'Tesseract OCR';
         if (value === 'azure-document-intelligence-layout') return 'Document Intelligence Layout';
+        if (value === 'tencent-generalaccurateocr') return 'Tencent OCR Accurate';
+        if (value === 'tencent-generalbasicocr') return 'Tencent OCR Basic';
         return provider;
     }
 

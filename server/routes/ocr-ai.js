@@ -1,4 +1,5 @@
 const express = require('express');
+const tencentcloud = require('tencentcloud-sdk-nodejs');
 
 const router = express.Router();
 
@@ -25,6 +26,19 @@ function getDocumentIntelligenceConfig() {
         apiKey,
         apiVersion: process.env.DOCUMENT_INTELLIGENCE_API_VERSION || '2024-11-30',
         model: process.env.DOCUMENT_INTELLIGENCE_MODEL || 'prebuilt-layout'
+    };
+}
+
+function getTencentOcrConfig() {
+    const secretId = String(process.env.TENCENT_SECRET_ID || '').trim();
+    const secretKey = String(process.env.TENCENT_SECRET_KEY || '').trim();
+    if (!secretId || !secretKey) return null;
+    return {
+        secretId,
+        secretKey,
+        region: process.env.TENCENT_OCR_REGION || 'ap-beijing',
+        endpoint: process.env.TENCENT_OCR_ENDPOINT || 'ocr.tencentcloudapi.com',
+        action: process.env.TENCENT_OCR_ACTION || 'GeneralAccurateOCR'
     };
 }
 
@@ -204,6 +218,127 @@ function buildDocumentLayoutPayload(analyzeResult) {
         wordCount: wordSpans.length,
         lineCount: lines.length
     };
+}
+
+function getPolygonMetrics(points) {
+    const list = Array.isArray(points) ? points : [];
+    if (list.length === 0) return { minX: 0, maxX: 0, minY: 0, maxY: 0, centerY: 0, height: 0 };
+    const xs = list.map(point => Number(point && point.X)).filter(Number.isFinite);
+    const ys = list.map(point => Number(point && point.Y)).filter(Number.isFinite);
+    if (xs.length === 0 || ys.length === 0) return { minX: 0, maxX: 0, minY: 0, maxY: 0, centerY: 0, height: 0 };
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    return {
+        minX,
+        maxX,
+        minY,
+        maxY,
+        centerY: (minY + maxY) / 2,
+        height: Math.max(1, maxY - minY)
+    };
+}
+
+function buildTencentOcrPayload(textDetections) {
+    const entries = (Array.isArray(textDetections) ? textDetections : [])
+        .map((item) => {
+            const text = String(item && item.DetectedText || '').replace(/\s+/g, ' ').trim();
+            if (!text) return null;
+            const confidence = Number(item && item.Confidence);
+            return {
+                text,
+                confidence: Number.isFinite(confidence) ? confidence : 0,
+                ...getPolygonMetrics(item && item.Polygon)
+            };
+        })
+        .filter(Boolean)
+        .sort((a, b) => {
+            if (Math.abs(a.centerY - b.centerY) > Math.max(8, Math.min(a.height, b.height) * 0.45)) {
+                return a.centerY - b.centerY;
+            }
+            return a.minX - b.minX;
+        });
+
+    const groupedLines = [];
+    entries.forEach((entry) => {
+        const last = groupedLines[groupedLines.length - 1];
+        const threshold = Math.max(12, entry.height * 0.6, last ? last.height * 0.6 : 0);
+        if (!last || Math.abs(entry.centerY - last.centerY) > threshold) {
+            groupedLines.push({
+                centerY: entry.centerY,
+                height: entry.height,
+                parts: [entry]
+            });
+            return;
+        }
+        last.parts.push(entry);
+        last.centerY = average(last.parts.map(part => part.centerY)) || last.centerY;
+        last.height = Math.max(last.height, entry.height);
+    });
+
+    const lines = groupedLines.map((group) => {
+        const parts = group.parts.sort((a, b) => a.minX - b.minX);
+        const text = parts.map(part => part.text).join(' ').replace(/\s+/g, ' ').trim();
+        const accuracy = average(parts.map(part => part.confidence));
+        return {
+            text,
+            confidence: Number.isFinite(accuracy) ? Math.round(accuracy) : 0
+        };
+    }).filter(line => line.text);
+
+    const globalAccuracy = average(entries.map(entry => entry.confidence));
+    return {
+        text: lines.map(line => line.text).join('\n').trim(),
+        lines,
+        accuracy: Number.isFinite(globalAccuracy) ? Math.round(globalAccuracy) : 0,
+        wordCount: entries.length,
+        lineCount: lines.length
+    };
+}
+
+async function analyzeWithTencentOcr(imageData) {
+    const config = getTencentOcrConfig();
+    if (!config) return { available: false };
+
+    const parsedImage = parseImageDataUrl(imageData);
+    if (!parsedImage) throw new Error('Invalid image data URL');
+
+    const { Client } = tencentcloud.ocr.v20181119;
+    const client = new Client({
+        credential: {
+            secretId: config.secretId,
+            secretKey: config.secretKey
+        },
+        region: config.region,
+        profile: {
+            httpProfile: {
+                endpoint: config.endpoint
+            }
+        }
+    });
+
+    const actionName = String(config.action || 'GeneralAccurateOCR').trim();
+    if (typeof client[actionName] !== 'function') {
+        throw new Error(`Unsupported Tencent OCR action: ${actionName}`);
+    }
+
+    const response = await client[actionName]({
+        ImageBase64: parsedImage.base64,
+        EnableWordPolygon: false
+    });
+
+    return {
+        available: true,
+        provider: `tencent-${actionName.toLowerCase()}`,
+        ...buildTencentOcrPayload(response && response.TextDetections)
+    };
+}
+
+async function analyzeWithPreferredOcr(imageData) {
+    const tencentResult = await analyzeWithTencentOcr(imageData);
+    if (tencentResult.available) return tencentResult;
+    return analyzeWithDocumentIntelligence(imageData);
 }
 
 async function analyzeWithDocumentIntelligence(imageData) {
@@ -491,15 +626,15 @@ router.post('/layout', async (req, res) => {
             return res.status(400).json({ error: 'imageData is required' });
         }
 
-        const result = await analyzeWithDocumentIntelligence(imageData);
+        const result = await analyzeWithPreferredOcr(imageData);
         if (!result.available) {
-            return res.status(503).json({ error: 'Document Intelligence not configured' });
+            return res.status(503).json({ error: 'OCR provider not configured' });
         }
 
         return res.json(result);
     } catch (err) {
         console.warn('[ocr-ai] layout failed:', err.message);
-        return res.status(500).json({ error: 'Document Intelligence OCR failed' });
+        return res.status(500).json({ error: 'Server OCR failed' });
     }
 });
 

@@ -176,7 +176,11 @@ Web Speech API 语音合成兼容性：
 ## 🤖 可选 AI 句子识图
 
 - 句子题图片现在支持可选的 AI 识图补全通道。
-- 普通图片 OCR 现已支持优先走 Azure **Document Intelligence Layout**，未配置时自动回退到浏览器 Tesseract OCR。
+- 普通图片 OCR 现已支持优先走 **腾讯云 OCR**，其次回退 Azure **Document Intelligence Layout**，都未配置时再回退浏览器 Tesseract OCR。
+- 腾讯云 OCR 环境变量：
+  - `TENCENT_SECRET_ID` + `TENCENT_SECRET_KEY`
+  - 可选：`TENCENT_OCR_REGION`（默认 `ap-beijing`）
+  - 可选：`TENCENT_OCR_ACTION`（默认 `GeneralAccurateOCR`，也可改成 `GeneralBasicOCR`）
 - 服务端环境变量（任选一组命名）：
   - `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` + `AZURE_DOCUMENT_INTELLIGENCE_API_KEY`
   - `DOCUMENT_INTELLIGENCE_ENDPOINT` + `DOCUMENT_INTELLIGENCE_API_KEY`
