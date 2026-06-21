@@ -338,7 +338,7 @@ async function analyzeWithTencentOcr(imageData) {
 async function analyzeWithPreferredOcr(imageData) {
     const tencentResult = await analyzeWithTencentOcr(imageData);
     if (tencentResult.available) return tencentResult;
-    return analyzeWithDocumentIntelligence(imageData);
+    return { available: false };
 }
 
 async function analyzeWithDocumentIntelligence(imageData) {
