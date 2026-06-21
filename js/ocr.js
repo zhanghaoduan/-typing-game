@@ -2077,9 +2077,9 @@ const ImageOCR = (() => {
             recognizedData = cloneRecognizedData(aggregateData);
 
             csvImports.forEach((csvData) => {
-                (csvData.words || []).forEach(item => addToSection(item.en || item, 'words', { forceSection: true, presetCn: item.cn || '' }));
-                (csvData.phrases || []).forEach(item => addToSection(item.en || item, 'phrases', { forceSection: true, presetCn: item.cn || '' }));
-                (csvData.sentences || []).forEach(item => addToSection(item.en || item, 'sentences', { forceSection: true, presetCn: item.cn || '' }));
+                (csvData.words || []).forEach(item => addToSection(item.en || item, 'words', { forceSection: true, presetCn: item.cn || '', presetCnSource: 'csv' }));
+                (csvData.phrases || []).forEach(item => addToSection(item.en || item, 'phrases', { forceSection: true, presetCn: item.cn || '', presetCnSource: 'csv' }));
+                (csvData.sentences || []).forEach(item => addToSection(item.en || item, 'sentences', { forceSection: true, presetCn: item.cn || '', presetCnSource: 'csv' }));
                 if (!recognizedData.unitName && csvData.unitName) {
                     recognizedData.unitName = csvData.unitName;
                 }
@@ -3146,6 +3146,7 @@ const ImageOCR = (() => {
     function addToSection(text, section, options = {}) {
         const forceSection = !!options.forceSection;
         const presetCn = String(options.presetCn || '').trim();
+        const presetCnSource = String(options.presetCnSource || 'ocr').trim();
         text = fixCommonOcrTextIssues(
             trimTrailingCarryover(trimTrailingOcrNoise(text)),
             section === 'sentences' || forceSection
@@ -3164,9 +3165,8 @@ const ImageOCR = (() => {
             targetSection = 'phrases';
         }
 
-        // If explicitly assigned to a section, trust it
-        // But do a sanity check for obvious mismatches
-        if (targetSection === 'words' && wordCount > 2 && !text.includes('...')) {
+        // If explicitly assigned to a section, trust it.
+        if (!forceSection && targetSection === 'words' && wordCount > 2 && !text.includes('...')) {
             targetSection = isSentence(text) ? 'sentences' : 'phrases';
         }
         if (!forceSection && targetSection === 'sentences' && isLikelyPhraseCandidate(text)) {
@@ -3179,7 +3179,7 @@ const ImageOCR = (() => {
             cn: cn,
             difficulty: wordCount === 1 ? 1 : (wordCount <= 5 ? 2 : 3)
         };
-        if (presetCn) item._cnSource = 'ocr';
+        if (presetCn) item._cnSource = presetCnSource || 'ocr';
 
         // Avoid duplicates
         const list = recognizedData[targetSection];
@@ -3246,7 +3246,7 @@ const ImageOCR = (() => {
         const all = [];
         ['words', 'phrases', 'sentences'].forEach(type => {
             recognizedData[type].forEach(item => {
-                if (item.en && item._cnSource !== 'ocr' && item._cnSource !== 'manual' && item._cnSource !== 'remote') {
+                if (item.en && item._cnSource !== 'ocr' && item._cnSource !== 'csv' && item._cnSource !== 'manual' && item._cnSource !== 'remote') {
                     all.push(item.en);
                 }
             });
@@ -3280,6 +3280,7 @@ const ImageOCR = (() => {
                         item.en &&
                         map[item.en] &&
                         item._cnSource !== 'ocr' &&
+                        item._cnSource !== 'csv' &&
                         item._cnSource !== 'manual' &&
                         map[item.en] !== item.cn
                     ) {
