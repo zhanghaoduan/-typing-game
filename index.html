@@ -181,6 +181,11 @@
             <div class="upload-instructions">
                 <p>📌 上传课本或单元测试的图片，系统会智能识别单词、词组和句子，支持校对后保存，以后可以反复练习。</p>
                 <p>Upload a textbook/test photo. The system will recognize words, phrases and sentences. You can proofread, save, and practice later.</p>
+                <div class="upload-name-guide">
+                    <strong>📎 建议命名规则 / Recommended file naming</strong>
+                    <p>系统会严格按文件名里的“单词 / 词组 / 句子”分类。</p>
+                    <p>只含词组：<code>20260621词组</code>；只含句子：<code>20260621句子</code>；只含单词：<code>20260621单词</code>；含词组和句子：<code>20260621词组句子</code>；含单词词组句子：<code>20260621单词词组句子</code>。</p>
+                </div>
             </div>
 
             <!-- Saved Units Section -->
@@ -200,7 +205,7 @@
                     <div class="dropzone-icon">📁</div>
                     <p>点击选择多张图片 / CSV，或直接拖拽图片、CSV、整个文件夹到此处</p>
                     <p>Click to select multiple images / CSV, or drag images, CSV, or a whole folder here</p>
-                    <p class="upload-hint">支持 JPG, PNG, BMP, CSV；可一次识别多张图片并合并结果</p>
+                    <p class="upload-hint">支持 JPG, PNG, BMP, CSV；可一次识别多张图片并合并结果。文件名若写“单词 / 词组 / 句子”，系统会严格按文件名分类。</p>
                     <div class="upload-picker-actions">
                         <button type="button" class="btn btn-small btn-outline" id="choose-files-btn">选择图片/CSV Select Files</button>
                         <button type="button" class="btn btn-small btn-outline" id="choose-folder-btn">选择文件夹 Select Folder</button>

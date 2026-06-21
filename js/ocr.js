@@ -757,6 +757,7 @@ const ImageOCR = (() => {
 
     function shouldUseAiForImage(parseHint, rawText, fileName = '') {
         if (typeof AuthUI === 'undefined' || !AuthUI.isAdmin || !AuthUI.isAdmin()) return false;
+        if (parseHint && parseHint.filenameDirected) return false;
         const text = String(rawText || '').trim();
         const expectedCount = detectExpectedNumberedItemCount(text);
         if (parseHint && parseHint.mixedSections) return false;
@@ -1477,6 +1478,7 @@ const ImageOCR = (() => {
         const csvImports = [];
         const imageStats = [];
         const aggregateData = createEmptyRecognizedData();
+        let usedStrictFilenameRouting = false;
 
         translationRequestSeq += 1;
         uploadedImageReferences = [];
@@ -1526,6 +1528,7 @@ const ImageOCR = (() => {
                 uploadedImageReferences.push(sourceRef);
                 const baseRawText = buildUsableRawTextFromOcr(result.data);
                 const parseHint = detectSourceParseHint(file.name, result.data.text || baseRawText);
+                if (parseHint.filenameDirected) usedStrictFilenameRouting = true;
                 parseHint.fullOcrText = String((result.data && result.data.text) || baseRawText || '');
                 const rawText = parseHint.forceSection === 'sentences'
                     ? buildSentenceExerciseRawTextFromOcr(result.data)
@@ -1620,7 +1623,7 @@ const ImageOCR = (() => {
             // DeepSeek re-classification: ask LLM to re-bucket items into
             // words / phrases / sentences while preserving the original
             // image numbering order. Falls back silently if not configured.
-            if (typeof AuthUI !== 'undefined' && AuthUI.isAdmin && AuthUI.isAdmin()) {
+            if (!usedStrictFilenameRouting && typeof AuthUI !== 'undefined' && AuthUI.isAdmin && AuthUI.isAdmin()) {
                 try {
                     statusEl.textContent = '正在用 DeepSeek 智能分类... Reclassifying with DeepSeek...';
                     await reclassifyRecognizedDataWithDeepSeek();
