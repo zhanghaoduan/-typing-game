@@ -811,6 +811,28 @@ const ImageOCR = (() => {
         return ordered;
     }
 
+    function shouldPreserveOriginalClassification(entry) {
+        if (!entry || !entry.item) return false;
+        const text = String(entry.item.en || '').trim();
+        if (!text) return false;
+
+        if (entry.item._lockedSection) return true;
+
+        if (entry.originalType === 'words') {
+            return isLikelyWordEntry(normalizeWordCandidate(text));
+        }
+
+        if (entry.originalType === 'phrases') {
+            return isLikelyPhraseCandidate(text) && countEnglishWords(text) <= 5;
+        }
+
+        if (entry.originalType === 'sentences') {
+            return isSentence(text) || countEnglishWords(text) >= 6;
+        }
+
+        return false;
+    }
+
     async function reclassifyRecognizedDataWithDeepSeek() {
         const ordered = collectRecognizedItemsForClassification();
         if (ordered.length === 0) return;
@@ -839,7 +861,8 @@ const ImageOCR = (() => {
         const buckets = { words: [], phrases: [], sentences: [] };
         ordered.forEach((entry, i) => {
             const cls = list[i];
-            const target = entry.item._lockedSection || (cls && typeMap[String(cls.type || '').toLowerCase()]) || entry.originalType;
+            const aiTarget = (cls && typeMap[String(cls.type || '').toLowerCase()]) || entry.originalType;
+            const target = shouldPreserveOriginalClassification(entry) ? entry.originalType : aiTarget;
             buckets[target].push(entry.item);
         });
 
