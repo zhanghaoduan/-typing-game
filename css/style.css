@@ -2131,6 +2131,14 @@ body.theme-dark .home-hero-text h3 { color: #f1f5f9; }
 body.theme-dark .stat-label, body.theme-dark .empty-message,
 body.theme-dark .empty-hint, body.theme-dark .home-hero-text p,
 body.theme-dark .review-count, body.theme-dark p { color: #94a3b8; }
+body.dark-mode .stat-value,
+body.dark-mode .home-hero-text h3 { color: #f1f5f9; }
+body.dark-mode .stat-label,
+body.dark-mode .empty-message,
+body.dark-mode .empty-hint,
+body.dark-mode .home-hero-text p,
+body.dark-mode .review-count,
+body.dark-mode p { color: #94a3b8; }
 body.theme-dark .home-card, body.theme-dark .home-util-btn,
 body.theme-dark .level-card, body.theme-dark .module-card,
 body.theme-dark .review-item, body.theme-dark .srs-stat,
