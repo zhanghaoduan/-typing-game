@@ -1374,7 +1374,7 @@ const ImageOCR = (() => {
             }
 
             if (!currentNumber) return;
-            const english = extractEnglish(line);
+            const english = extractSentenceContinuation(line);
             if (!english) return;
             currentParts.push(english);
         });
@@ -1466,7 +1466,7 @@ const ImageOCR = (() => {
                 continue;
             }
 
-            const english = extractEnglish(line);
+            const english = extractSentenceContinuation(line);
             if (english) {
                 currentSentence = currentSentence
                     ? joinSentenceParts(currentSentence, english)
@@ -1497,7 +1497,7 @@ const ImageOCR = (() => {
 
         const kept = lines
             .map(line => {
-                const text = fixCommonOcrTextIssues(trimTrailingOcrNoise(line && line.text), true);
+                const text = fixCommonOcrTextIssues(normalizeOcrLineText(line && line.text), true);
                 const confidence = Number(line && (line.confidence ?? line.conf)) || 0;
                 return { text, confidence };
             })
@@ -2639,9 +2639,9 @@ const ImageOCR = (() => {
     }
 
     // Extract English text from a mixed line - improved
-    function extractEnglish(line) {
+    function extractEnglishFragment(line, minWords = 2) {
         // Remove Chinese characters and special markers
-        let english = line.replace(/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/g, ' ');
+        let english = String(line || '').replace(/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/g, ' ');
         // Remove leading numbers/dots/markers
         english = english.replace(/^\s*\d+[.\s、:]*/g, '');
         // Clean up extra spaces
@@ -2651,10 +2651,18 @@ const ImageOCR = (() => {
         english = trimTrailingOcrNoise(english);
         english = trimTrailingCarryover(english);
 
-        if (english.match(/[a-zA-Z]{2,}/) && countEnglishWords(english) >= 2 && !looksLikeOcrGarbage(english)) {
+        if (english.match(/[a-zA-Z]{2,}/) && countEnglishWords(english) >= minWords && !looksLikeOcrGarbage(english)) {
             return english;
         }
         return null;
+    }
+
+    function extractSentenceContinuation(line) {
+        return extractEnglishFragment(line, 1);
+    }
+
+    function extractEnglish(line) {
+        return extractEnglishFragment(line, 2);
     }
 
     // Add item to appropriate section - respects assigned section
