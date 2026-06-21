@@ -121,6 +121,17 @@ const ImageOCR = (() => {
         return data;
     }
 
+    function normalizeRecognizedCollectionsPreservingEmpty(data) {
+        if (!data) return data;
+        ['words', 'phrases', 'sentences'].forEach((type) => {
+            const items = Array.isArray(data[type]) ? data[type] : [];
+            const filledItems = items.filter(item => String(item && item.en || '').trim());
+            const emptyItems = items.filter(item => !String(item && item.en || '').trim());
+            data[type] = [...dedupeRecognizedItems(filledItems, type), ...emptyItems];
+        });
+        return data;
+    }
+
     function reclassifyForcedSectionItems(data, forceSection) {
         if (!forceSection) return data;
 
@@ -3314,7 +3325,7 @@ const ImageOCR = (() => {
 
     // Add a new empty item to a section
     function addItem(type) {
-        collectEdits(false);
+        collectEdits(false, true);
         recognizedData[type].push({ en: '', cn: '', difficulty: type === 'sentences' ? 3 : (type === 'phrases' ? 2 : 1) });
         refreshSection(type, { preserveEmpty: true, focusNewItem: true });
     }
@@ -3329,7 +3340,7 @@ const ImageOCR = (() => {
     // Refresh a single section's HTML
     function refreshSection(type, options = {}) {
         const { preserveEmpty = false, focusNewItem = false } = options;
-        collectEdits(!preserveEmpty); // Collect any edits user made in other sections
+        collectEdits(!preserveEmpty, preserveEmpty); // Collect any edits user made in other sections
         const container = document.getElementById(`proofread-${type}`);
         if (!container) return;
         let html = '';
@@ -3353,7 +3364,7 @@ const ImageOCR = (() => {
     }
 
     // Collect all edits from the proofreading UI into recognizedData
-    function collectEdits(removeEmpty = true) {
+    function collectEdits(removeEmpty = true, preserveEmptyDrafts = false) {
         // Unit name
         const nameInput = document.getElementById('proofread-unit-name');
         if (nameInput) {
@@ -3403,7 +3414,11 @@ const ImageOCR = (() => {
                 recognizedData[type] = recognizedData[type].filter(item => item.en.length > 0);
             });
         }
-        normalizeRecognizedCollections(recognizedData);
+        if (preserveEmptyDrafts) {
+            normalizeRecognizedCollectionsPreservingEmpty(recognizedData);
+        } else {
+            normalizeRecognizedCollections(recognizedData);
+        }
     }
 
     function getReferenceImageSrc() {
