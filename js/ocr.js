@@ -1383,6 +1383,92 @@ const ImageOCR = (() => {
         return fallbacks;
     }
 
+    function getMaxNumberedSentenceIndex(sentenceMap) {
+        if (!(sentenceMap instanceof Map) || sentenceMap.size === 0) return 0;
+        return Math.max(...sentenceMap.keys());
+    }
+
+    function mergeNumberedSentenceMaps(...maps) {
+        const merged = new Map();
+        maps.forEach((map) => {
+            if (!(map instanceof Map)) return;
+            map.forEach((text, number) => {
+                const normalized = fixCommonOcrTextIssues(
+                    trimTrailingCarryover(trimTrailingOcrNoise(text)),
+                    true
+                ).replace(/\s+/g, ' ').trim();
+                if (!normalized || countEnglishWords(normalized) < 3) return;
+                const existing = merged.get(number);
+                if (!existing || countEnglishWords(normalized) >= countEnglishWords(existing)) {
+                    merged.set(number, normalized);
+                }
+            });
+        });
+        return merged;
+    }
+
+    function extractNumberedSentencesFromOcrLines(ocrData) {
+        const lines = Array.isArray(ocrData && ocrData.lines) ? ocrData.lines : [];
+        const sentences = new Map();
+        let currentNumber = null;
+        let currentParts = [];
+
+        const commitCurrent = () => {
+            if (!currentNumber || currentParts.length === 0) return;
+            const normalized = fixCommonOcrTextIssues(
+                trimTrailingCarryover(trimTrailingOcrNoise(currentParts.join(' '))),
+                true
+            ).replace(/\s+/g, ' ').trim();
+            if (normalized && countEnglishWords(normalized) >= 3) {
+                const existing = sentences.get(currentNumber);
+                if (!existing || countEnglishWords(normalized) >= countEnglishWords(existing)) {
+                    sentences.set(currentNumber, normalized);
+                }
+            }
+            currentNumber = null;
+            currentParts = [];
+        };
+
+        lines.forEach((lineData) => {
+            const line = fixCommonOcrTextIssues(normalizeOcrLineText(lineData && lineData.text), true);
+            if (!line) return;
+
+            const numberedSegments = extractNumberedLineSegments(line);
+            if (numberedSegments.length > 0) {
+                commitCurrent();
+
+                if (numberedSegments.length === 1) {
+                    const segmentText = extractSentenceContinuation(numberedSegments[0].text) || numberedSegments[0].text;
+                    if (!segmentText) return;
+                    currentNumber = numberedSegments[0].number;
+                    currentParts = [segmentText];
+                    return;
+                }
+
+                numberedSegments.forEach((segment) => {
+                    const normalized = fixCommonOcrTextIssues(
+                        trimTrailingCarryover(trimTrailingOcrNoise(segment.text)),
+                        true
+                    ).replace(/\s+/g, ' ').trim();
+                    if (!normalized || countEnglishWords(normalized) < 3) return;
+                    const existing = sentences.get(segment.number);
+                    if (!existing || countEnglishWords(normalized) >= countEnglishWords(existing)) {
+                        sentences.set(segment.number, normalized);
+                    }
+                });
+                return;
+            }
+
+            if (!currentNumber) return;
+            const continuation = extractSentenceContinuation(line);
+            if (!continuation) return;
+            currentParts.push(continuation);
+        });
+
+        commitCurrent();
+        return sentences;
+    }
+
     function completeForcedSentence(text, number, fallbackMap) {
         const current = fixCommonOcrTextIssues(trimTrailingCarryover(trimTrailingOcrNoise(text)), true).trim();
         if (!current) return current;
@@ -1416,8 +1502,16 @@ const ImageOCR = (() => {
 
         const lines = String(rawText || '').split('\n').map(line => line.trim()).filter(Boolean);
         const fullSentenceText = parseHint.fullOcrText || rawText;
-        const fallbackSentences = extractNumberedSentenceFallbacks(fullSentenceText);
-        const expectedCount = detectExpectedNumberedItemCount(fullSentenceText);
+        const lineSentences = parseHint.lineNumberedSentences instanceof Map ? parseHint.lineNumberedSentences : new Map();
+        const fallbackSentences = mergeNumberedSentenceMaps(
+            extractNumberedSentenceFallbacks(fullSentenceText),
+            lineSentences
+        );
+        const expectedCount = Math.max(
+            detectExpectedNumberedItemCount(fullSentenceText),
+            getMaxNumberedSentenceIndex(lineSentences),
+            getMaxNumberedSentenceIndex(fallbackSentences)
+        );
         const seenNumbers = new Set();
         let currentSentence = '';
         let currentNumber = null;
@@ -1428,6 +1522,19 @@ const ImageOCR = (() => {
             addToSection(completed, 'sentences', { forceSection: true });
             if (number) seenNumbers.add(Number(number));
         };
+
+        if (lineSentences.size > 0) {
+            const orderedNumbers = [...lineSentences.keys()].sort((a, b) => a - b);
+            orderedNumbers.forEach((number) => {
+                addSentenceEntry(lineSentences.get(number), number);
+            });
+            if (expectedCount === 0 || lineSentences.size >= expectedCount) {
+                autoTranslateAll();
+                return;
+            }
+            recognizedData.sentences = [];
+            seenNumbers.clear();
+        }
 
         if (fallbackSentences.size > 0) {
             const orderedNumbers = [...fallbackSentences.keys()].sort((a, b) => a - b);
@@ -1530,7 +1637,7 @@ const ImageOCR = (() => {
 
         const kept = lines
             .map(line => {
-                const text = fixCommonOcrTextIssues(trimTrailingOcrNoise(line && line.text), true);
+                const text = fixCommonOcrTextIssues(normalizeOcrLineText(line && line.text), true);
                 const confidence = Number(line && (line.confidence ?? line.conf)) || 0;
                 return { text, confidence };
             })
@@ -1619,9 +1726,11 @@ const ImageOCR = (() => {
                 uploadedImageReferences.push(sourceRef);
                 const baseRawText = buildUsableRawTextFromOcr(result.data);
                 const sentenceRawText = buildSentenceExerciseRawTextFromOcr(result.data);
+                const numberedLineSentences = extractNumberedSentencesFromOcrLines(result.data);
                 const parseSeedText = sentenceRawText || result.data.text || baseRawText;
                 const parseHint = detectSourceParseHint(file.name, parseSeedText);
                 if (parseHint.filenameDirected) usedStrictFilenameRouting = true;
+                parseHint.lineNumberedSentences = numberedLineSentences;
                 parseHint.fullOcrText = String(
                     (parseHint.forceSection === 'sentences' ? sentenceRawText : '') ||
                     (result.data && result.data.text) ||
