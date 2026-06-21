@@ -2000,7 +2000,12 @@ const ImageOCR = (() => {
             if (numberedItems.length > 1) {
                 flushSentence();
                 const inferredSection = classifyExtractedItems(numberedItems, activeSection);
-                numberedItems.forEach(item => addToSection(item, inferredSection, { forceSection: true }));
+                const entryItems = extractItemEntries(line);
+                if (entryItems.length === numberedItems.length) {
+                    entryItems.forEach(item => addToSection(item.en, inferredSection, { forceSection: true, presetCn: item.cn || '' }));
+                } else {
+                    numberedItems.forEach(item => addToSection(item, inferredSection, { forceSection: true }));
+                }
                 if (!activeSection) {
                     activeSection = inferredSection;
                 }
@@ -2029,7 +2034,12 @@ const ImageOCR = (() => {
 
             const items = extractItems(line);
             if (items.length > 0) {
-                items.forEach(item => addToSection(item, activeSection, { forceSection: true }));
+                const entryItems = extractItemEntries(line);
+                if (entryItems.length === items.length) {
+                    entryItems.forEach(item => addToSection(item.en, activeSection, { forceSection: true, presetCn: item.cn || '' }));
+                } else {
+                    items.forEach(item => addToSection(item, activeSection, { forceSection: true }));
+                }
                 continue;
             }
 
@@ -2152,7 +2162,8 @@ const ImageOCR = (() => {
                 if (!currentGroup) {
                     currentGroup = { items: [], avgWordCount: 0, forcedSection };
                 }
-                currentGroup.items.push(...items);
+                const entryItems = extractItemEntries(line);
+                currentGroup.items.push(...(entryItems.length === items.length ? entryItems : items));
                 // Track the last number seen
                 const nums = line.match(/\d{1,2}(?=[.\s、:])/g);
                 if (nums) {
@@ -2167,7 +2178,15 @@ const ImageOCR = (() => {
                     }
                     if (forcedSection === 'sentences' && currentGroup.items.length > 0) {
                         const lastIndex = currentGroup.items.length - 1;
-                        currentGroup.items[lastIndex] = joinSentenceParts(currentGroup.items[lastIndex], english);
+                        const lastItem = currentGroup.items[lastIndex];
+                        if (typeof lastItem === 'string') {
+                            currentGroup.items[lastIndex] = joinSentenceParts(lastItem, english);
+                        } else {
+                            currentGroup.items[lastIndex] = {
+                                ...lastItem,
+                                en: joinSentenceParts(lastItem.en || '', english)
+                            };
+                        }
                     } else {
                         splitSemicolonPhraseCandidates(english).forEach(item => currentGroup.items.push(item));
                     }
@@ -2182,7 +2201,8 @@ const ImageOCR = (() => {
 
         // 3. Classify each group as words, phrases, or sentences
         contentGroups.forEach((group, idx) => {
-            const avgWords = group.items.reduce((sum, item) => sum + item.split(/\s+/).length, 0) / group.items.length;
+            const rawItems = group.items.map(item => typeof item === 'string' ? item : String(item.en || '').trim()).filter(Boolean);
+            const avgWords = rawItems.reduce((sum, item) => sum + item.split(/\s+/).length, 0) / rawItems.length;
 
             let section;
             if (group.forcedSection) {
@@ -2211,7 +2231,11 @@ const ImageOCR = (() => {
             group.assignedSection = section;
 
             group.items.forEach(item => {
-                addToSection(item, section, { forceSection: !!group.forcedSection });
+                if (typeof item === 'string') {
+                    addToSection(item, section, { forceSection: !!group.forcedSection });
+                    return;
+                }
+                addToSection(item.en, section, { forceSection: !!group.forcedSection, presetCn: item.cn || '' });
             });
         });
 
@@ -2340,6 +2364,65 @@ const ImageOCR = (() => {
         return [text.trim()];
     }
 
+    function extractChineseTranslation(line, english = '') {
+        let text = String(line || '').trim();
+        if (!text) return '';
+
+        text = text.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim();
+        if (english) {
+            const escaped = english.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            text = text.replace(new RegExp(escaped, 'i'), ' ');
+        }
+
+        const chineseSegments = (text.match(/[\u4e00-\u9fff][\u4e00-\u9fff0-9a-zA-Z·（）()、，,；;：“”‘’《》—\-\s]*/g) || [])
+            .map(segment => segment
+                .replace(/^[\s\-—:：,，;；.。!?！？'"“”‘’（）()【】\[\]]+/, '')
+                .replace(/[\s\-—:：,，;；.。!?！？'"“”‘’（）()【】\[\]]+$/g, '')
+                .replace(/\s+/g, ' ')
+                .trim())
+            .filter(Boolean);
+
+        if (chineseSegments.length === 0) return '';
+        return chineseSegments.reduce((best, current) => current.length > best.length ? current : best, '');
+    }
+
+    function extractItemEntries(line) {
+        const entries = [];
+
+        const starts = [];
+        const startRegex = /(?:^|\s)(\d{1,2})[.\s、:]+/g;
+        let m;
+        while ((m = startRegex.exec(line)) !== null) {
+            starts.push({ pos: m.index + (m[0].startsWith(' ') || m[0].startsWith('\t') ? 1 : 0), fullMatch: m[0] });
+        }
+
+        if (starts.length === 0) return entries;
+
+        for (let i = 0; i < starts.length; i++) {
+            const startPos = starts[i].pos + starts[i].fullMatch.trimStart().length;
+            const endPos = (i + 1 < starts.length) ? starts[i + 1].pos : line.length;
+            let text = line.substring(startPos, endPos).trim();
+            text = text.replace(/\s+\d{1,2}[.\s]*$/, '').trim();
+            text = text.replace(/[,;\s]+$/, '').trim();
+            if (text.length < 2 || !text.match(/[a-zA-Z]{2,}/)) continue;
+
+            const cleanedEnglish = trimTrailingCarryover(
+                trimTrailingOcrNoise(text.replace(/[^a-zA-Z0-9\s.,!?'"\-\/…]/g, '').trim())
+            );
+            if (cleanedEnglish.length < 2) continue;
+
+            const presetCn = extractChineseTranslation(text, cleanedEnglish);
+            splitSemicolonPhraseCandidates(cleanedEnglish).forEach(item => {
+                entries.push({
+                    en: item,
+                    cn: presetCn
+                });
+            });
+        }
+
+        return entries;
+    }
+
     function joinSentenceParts(base, continuation) {
         const first = String(base || '').trim();
         const second = String(continuation || '').trim();
@@ -2409,6 +2492,7 @@ const ImageOCR = (() => {
             cn: cn,
             difficulty: wordCount === 1 ? 1 : (wordCount <= 5 ? 2 : 3)
         };
+        if (presetCn) item._cnSource = 'ocr';
 
         // Avoid duplicates
         const list = recognizedData[targetSection];
@@ -2434,20 +2518,23 @@ const ImageOCR = (() => {
             if (isHeaderOrGarbage(line)) return;
             const items = extractItems(line);
             if (items.length > 0) {
+                const entryItems = extractItemEntries(line);
                 items.forEach(item => {
                     const wc = item.split(/\s+/).length;
-                    if (forcedSection) addToSection(item, forcedSection, { forceSection: true });
-                    else if (wc === 1) addToSection(item, 'words');
-                    else if (wc <= 5) addToSection(item, 'phrases');
-                    else addToSection(item, 'sentences');
+                    const entry = entryItems.find(candidate => candidate.en === item) || { en: item, cn: '' };
+                    if (forcedSection) addToSection(entry.en, forcedSection, { forceSection: true, presetCn: entry.cn || '' });
+                    else if (wc === 1) addToSection(entry.en, 'words', { presetCn: entry.cn || '' });
+                    else if (wc <= 5) addToSection(entry.en, 'phrases', { presetCn: entry.cn || '' });
+                    else addToSection(entry.en, 'sentences', { presetCn: entry.cn || '' });
                 });
             } else {
                 const english = extractEnglish(line);
                 if (english) {
                     const items = forcedSection === 'sentences' ? [english] : splitSemicolonPhraseCandidates(english);
+                    const presetCn = extractChineseTranslation(line, english);
                     items.forEach(item => {
                         const wc = item.split(/\s+/).length;
-                        addToSection(item, forcedSection || (wc >= 6 ? 'sentences' : 'phrases'), { forceSection: !!forcedSection });
+                        addToSection(item, forcedSection || (wc >= 6 ? 'sentences' : 'phrases'), { forceSection: !!forcedSection, presetCn });
                     });
                 }
             }
@@ -2472,7 +2559,9 @@ const ImageOCR = (() => {
         const all = [];
         ['words', 'phrases', 'sentences'].forEach(type => {
             recognizedData[type].forEach(item => {
-                if (item.en) all.push(item.en);
+                if (item.en && item._cnSource !== 'ocr' && item._cnSource !== 'manual' && item._cnSource !== 'remote') {
+                    all.push(item.en);
+                }
             });
         });
         if (all.length === 0) return;
@@ -2500,8 +2589,15 @@ const ImageOCR = (() => {
 
             ['words', 'phrases', 'sentences'].forEach(type => {
                 recognizedData[type].forEach((item, idx) => {
-                    if (item.en && map[item.en] && map[item.en] !== item.cn) {
+                    if (
+                        item.en &&
+                        map[item.en] &&
+                        item._cnSource !== 'ocr' &&
+                        item._cnSource !== 'manual' &&
+                        map[item.en] !== item.cn
+                    ) {
                         item.cn = map[item.en];
+                        item._cnSource = 'remote';
                         // Update the on-screen input/textarea if it exists
                         const sel = `.proofread-section[data-type="${type}"] .proofread-cn[data-idx="${idx}"]`;
                         const el = document.querySelector(sel);
@@ -2649,14 +2745,22 @@ const ImageOCR = (() => {
             const translation = autoTranslate(newText);
             cnInput.value = translation; // Always update, even if empty
             recognizedData[type][idx].cn = translation;
+            recognizedData[type][idx]._cnSource = translation ? 'local' : '';
             fetch('/api/translate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ texts: [newText] })
             }).then(r => r.ok ? r.json() : null).then(data => {
                 const zh = data && data.translations && data.translations[newText];
-                if (zh && recognizedData[type][idx] && recognizedData[type][idx].en === newText && recognizedData[type][idx].cn !== zh) {
+                if (
+                    zh &&
+                    recognizedData[type][idx] &&
+                    recognizedData[type][idx].en === newText &&
+                    recognizedData[type][idx]._cnSource !== 'ocr' &&
+                    recognizedData[type][idx].cn !== zh
+                ) {
                     recognizedData[type][idx].cn = zh;
+                    recognizedData[type][idx]._cnSource = 'remote';
                     cnInput.value = zh;
                     if (cnInput.tagName === 'TEXTAREA') {
                         cnInput.style.height = 'auto';
@@ -2742,7 +2846,12 @@ const ImageOCR = (() => {
             });
             cnInputs.forEach((input, idx) => {
                 if (recognizedData[type][idx]) {
-                    recognizedData[type][idx].cn = input.value.trim();
+                    const nextCn = input.value.trim();
+                    const prevCn = recognizedData[type][idx].cn || '';
+                    recognizedData[type][idx].cn = nextCn;
+                    if (nextCn && nextCn !== prevCn) {
+                        recognizedData[type][idx]._cnSource = 'manual';
+                    }
                 }
             });
         });
