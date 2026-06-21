@@ -1568,11 +1568,18 @@ const ImageOCR = (() => {
                 };
                 uploadedImageReferences.push(sourceRef);
                 const baseRawText = buildUsableRawTextFromOcr(result.data);
-                const parseHint = detectSourceParseHint(file.name, result.data.text || baseRawText);
+                const sentenceRawText = buildSentenceExerciseRawTextFromOcr(result.data);
+                const parseSeedText = sentenceRawText || result.data.text || baseRawText;
+                const parseHint = detectSourceParseHint(file.name, parseSeedText);
                 if (parseHint.filenameDirected) usedStrictFilenameRouting = true;
-                parseHint.fullOcrText = String((result.data && result.data.text) || baseRawText || '');
+                parseHint.fullOcrText = String(
+                    (parseHint.forceSection === 'sentences' ? sentenceRawText : '') ||
+                    (result.data && result.data.text) ||
+                    baseRawText ||
+                    ''
+                );
                 const rawText = parseHint.forceSection === 'sentences'
-                    ? buildSentenceExerciseRawTextFromOcr(result.data)
+                    ? sentenceRawText
                     : baseRawText;
                 let parsedData = null;
 
