@@ -55,6 +55,16 @@ const ImageOCR = (() => {
         return data;
     }
 
+    function lockRecognizedSection(data, section) {
+        if (!data || !section) return data;
+        ['words', 'phrases', 'sentences'].forEach(type => {
+            data[type].forEach(item => {
+                item._lockedSection = section;
+            });
+        });
+        return data;
+    }
+
     function buildItemDedupKey(text, section = '') {
         const raw = String(text || '').trim();
         if (!raw) return '';
@@ -92,6 +102,7 @@ const ImageOCR = (() => {
 
             if (!existing.cn && candidate.cn) existing.cn = candidate.cn;
             if (!existing._sourceRef && candidate._sourceRef) existing._sourceRef = { ...candidate._sourceRef };
+            if (!existing._lockedSection && candidate._lockedSection) existing._lockedSection = candidate._lockedSection;
             if (countEnglishWords(candidate.en || '') > countEnglishWords(existing.en || '')) {
                 existing.en = candidate.en;
                 if (candidate.cn) existing.cn = candidate.cn;
@@ -827,7 +838,7 @@ const ImageOCR = (() => {
         const buckets = { words: [], phrases: [], sentences: [] };
         ordered.forEach((entry, i) => {
             const cls = list[i];
-            const target = (cls && typeMap[String(cls.type || '').toLowerCase()]) || entry.originalType;
+            const target = entry.item._lockedSection || (cls && typeMap[String(cls.type || '').toLowerCase()]) || entry.originalType;
             buckets[target].push(entry.item);
         });
 
@@ -1489,6 +1500,9 @@ const ImageOCR = (() => {
                 }
                 parsedData = rebalanceParsedSections(parsedData, parseHint);
                 parsedData = completeMixedSectionsFromFullOcr(parsedData, parseHint);
+                if (parseHint.forceSection === 'sentences') {
+                    lockRecognizedSection(parsedData, 'sentences');
+                }
                 attachSourceReference(parsedData, sourceRef);
                 mergeRecognizedData(aggregateData, parsedData);
                 sourceIndex += 1;
