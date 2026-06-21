@@ -55,6 +55,59 @@ const ImageOCR = (() => {
         return data;
     }
 
+    function buildItemDedupKey(text, section = '') {
+        const raw = String(text || '').trim();
+        if (!raw) return '';
+
+        let normalized = raw;
+        if (section === 'words') {
+            normalized = normalizeWordCandidate(raw);
+        } else {
+            normalized = fixCommonOcrTextIssues(trimTrailingCarryover(trimTrailingOcrNoise(raw)), section === 'sentences');
+        }
+
+        return normalized
+            .toLowerCase()
+            .replace(/[“”]/g, '"')
+            .replace(/[‘’]/g, '\'')
+            .replace(/^[\d\s().、:：-]+/, '')
+            .replace(/[.,!?;:，。！？；：]+$/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function dedupeRecognizedItems(items, section) {
+        const merged = new Map();
+        (items || []).forEach((item) => {
+            if (!item) return;
+            const key = buildItemDedupKey(item.en, section);
+            if (!key) return;
+
+            const candidate = { ...item };
+            const existing = merged.get(key);
+            if (!existing) {
+                merged.set(key, candidate);
+                return;
+            }
+
+            if (!existing.cn && candidate.cn) existing.cn = candidate.cn;
+            if (!existing._sourceRef && candidate._sourceRef) existing._sourceRef = { ...candidate._sourceRef };
+            if (countEnglishWords(candidate.en || '') > countEnglishWords(existing.en || '')) {
+                existing.en = candidate.en;
+                if (candidate.cn) existing.cn = candidate.cn;
+            }
+        });
+        return [...merged.values()];
+    }
+
+    function normalizeRecognizedCollections(data) {
+        if (!data) return data;
+        ['words', 'phrases', 'sentences'].forEach((type) => {
+            data[type] = dedupeRecognizedItems(data[type], type);
+        });
+        return data;
+    }
+
     function reclassifyForcedSectionItems(data, forceSection) {
         if (!forceSection) return data;
 
@@ -66,7 +119,7 @@ const ImageOCR = (() => {
 
         const dedupe = new Set();
         data[forceSection] = moved.filter(item => {
-            const key = String(item.en || '').trim().toLowerCase();
+            const key = buildItemDedupKey(item.en, forceSection);
             if (!key || dedupe.has(key)) return false;
             dedupe.add(key);
             return true;
@@ -87,7 +140,9 @@ const ImageOCR = (() => {
 
         ['words', 'phrases', 'sentences'].forEach(type => {
             incoming[type].forEach(item => {
-                const existing = target[type].find(entry => entry.en.toLowerCase() === item.en.toLowerCase());
+                const itemKey = buildItemDedupKey(item.en, type);
+                if (!itemKey) return;
+                const existing = target[type].find(entry => buildItemDedupKey(entry.en, type) === itemKey);
                 if (!existing) {
                     target[type].push({ ...item });
                     return;
@@ -282,7 +337,7 @@ const ImageOCR = (() => {
                     trimTrailingCarryover(trimTrailingOcrNoise(block)),
                     true
                 ).trim();
-                if (!candidate || countEnglishWords(candidate) < 4) return;
+                if (!candidate || countEnglishWords(candidate) < 3) return;
             }
 
             const existing = ordered.get(start.number);
@@ -303,11 +358,29 @@ const ImageOCR = (() => {
     function mergeSentenceItemsByOrder(currentItems, extractedItems) {
         if (extractedItems.length === 0) return currentItems;
         if (currentItems.length === 0) return extractedItems;
-        return extractedItems.map((item, index) => {
+
+        const merged = [];
+        const maxLength = Math.max(currentItems.length, extractedItems.length);
+        for (let index = 0; index < maxLength; index += 1) {
             const current = currentItems[index];
-            if (!current) return item;
-            return countEnglishWords(item.en) >= countEnglishWords(current.en || '') ? item : current;
-        });
+            const extracted = extractedItems[index];
+            const preferred = (!current || (extracted && countEnglishWords(extracted.en) >= countEnglishWords(current.en || '')))
+                ? extracted
+                : current;
+            const fallback = preferred === extracted ? current : extracted;
+            const preferredKey = buildItemDedupKey(preferred && preferred.en, 'sentences');
+
+            if (preferred && preferredKey && !merged.find(item => buildItemDedupKey(item.en, 'sentences') === preferredKey)) {
+                merged.push(preferred);
+                continue;
+            }
+
+            const fallbackKey = buildItemDedupKey(fallback && fallback.en, 'sentences');
+            if (fallback && fallbackKey && !merged.find(item => buildItemDedupKey(item.en, 'sentences') === fallbackKey)) {
+                merged.push(fallback);
+            }
+        }
+        return merged;
     }
 
     function extractOrderedNumberBlocks(fullText) {
@@ -375,7 +448,7 @@ const ImageOCR = (() => {
             trimTrailingCarryover(trimTrailingOcrNoise(raw)),
             true
         ).trim();
-        return countEnglishWords(sentence) >= 4 ? sentence : '';
+        return countEnglishWords(sentence) >= 3 ? sentence : '';
     }
 
     function buildOrderedItemsFromBlocks(blocks, section) {
@@ -763,6 +836,7 @@ const ImageOCR = (() => {
         recognizedData.words = buckets.words;
         recognizedData.phrases = buckets.phrases;
         recognizedData.sentences = buckets.sentences;
+        normalizeRecognizedCollections(recognizedData);
         console.log('[OCR] DeepSeek classified', ordered.length, 'items →',
             `words=${buckets.words.length} phrases=${buckets.phrases.length} sentences=${buckets.sentences.length}`);
     }
@@ -1469,6 +1543,7 @@ const ImageOCR = (() => {
             }
 
             autoTranslateAll();
+            normalizeRecognizedCollections(recognizedData);
 
             const totalItems = recognizedData.words.length + recognizedData.phrases.length + recognizedData.sentences.length;
             if (totalItems === 0) {
@@ -2449,6 +2524,7 @@ const ImageOCR = (() => {
     function showProofreadUI() {
         const resultsEl = document.getElementById('upload-results');
         resultsEl.style.display = 'block';
+        normalizeRecognizedCollections(recognizedData);
         const referenceSrc = getReferenceImageSrc();
         const referenceSummary = escapeHtml(document.getElementById('preview-summary')?.textContent || '原图参考 Original image reference');
 
@@ -2480,10 +2556,10 @@ const ImageOCR = (() => {
 
         // Action buttons
         html += `<div class="proofread-actions">
-            <button class="btn btn-primary btn-large" onclick="ImageOCR.saveUnit()">
+            <button type="button" class="btn btn-primary btn-large" onclick="ImageOCR.saveUnit()">
                 💾 保存单元 Save Unit
             </button>
-            <button class="btn btn-secondary" onclick="ImageOCR.startPracticeFromProofread('all')">
+            <button type="button" class="btn btn-secondary" onclick="ImageOCR.startPracticeFromProofread('all')">
                 🎮 直接练习 Practice Now
             </button>
         </div>`;
@@ -2511,7 +2587,7 @@ const ImageOCR = (() => {
         let html = `<div class="proofread-section" data-type="${type}">
             <div class="proofread-section-header">
                 <h4>${title} (${items.length})</h4>
-                <button class="btn btn-small btn-outline" onclick="ImageOCR.addItem('${type}')">
+                <button type="button" class="btn btn-small btn-outline" onclick="ImageOCR.addItem('${type}')">
                     ➕ 添加 Add
                 </button>
             </div>
@@ -2541,7 +2617,7 @@ const ImageOCR = (() => {
                        placeholder="中文翻译" data-type="${type}" data-idx="${idx}"
                        oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'">${escapeHtml(item.cn)}</textarea>
                 </div>
-                <button class="btn-icon btn-delete" onclick="ImageOCR.removeItem('${type}', ${idx})" title="删除">✕</button>
+                <button type="button" class="btn-icon btn-delete" onclick="ImageOCR.removeItem('${type}', ${idx})" title="删除">✕</button>
             </div>`;
         }
         return `<div class="proofread-item" data-idx="${idx}">
@@ -2552,7 +2628,7 @@ const ImageOCR = (() => {
                    onchange="ImageOCR.onEnglishEdit(this)" onblur="ImageOCR.onEnglishEdit(this)">
             <input type="text" class="proofread-cn" value="${escapeHtml(item.cn)}" 
                    placeholder="中文释义(可选)" data-type="${type}" data-idx="${idx}">
-            <button class="btn-icon btn-delete" onclick="ImageOCR.removeItem('${type}', ${idx})" title="删除">✕</button>
+            <button type="button" class="btn-icon btn-delete" onclick="ImageOCR.removeItem('${type}', ${idx})" title="删除">✕</button>
         </div>`;
     }
 
@@ -2677,6 +2753,7 @@ const ImageOCR = (() => {
                 recognizedData[type] = recognizedData[type].filter(item => item.en.length > 0);
             });
         }
+        normalizeRecognizedCollections(recognizedData);
     }
 
     function getReferenceImageSrc() {
