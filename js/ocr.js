@@ -556,7 +556,7 @@ const ImageOCR = (() => {
             { section: 'sentences', signals: sentenceSignals }
         ];
 
-        const fileNameSections = signalSections
+        const filenameSections = signalSections
             .map(({ section, signals }) => ({
                 section,
                 index: signals.reduce((best, signal) => {
@@ -567,7 +567,7 @@ const ImageOCR = (() => {
             .filter(entry => entry.index >= 0)
             .sort((a, b) => a.index - b.index)
             .map(entry => entry.section);
-        const filenameDirected = fileNameSections.length > 0;
+        const filenameDirected = filenameSections.length > 0;
 
         const hasSignal = (signals) => signals.some(signal =>
             normalizedRaw.includes(signal.toLowerCase()) ||
@@ -593,13 +593,13 @@ const ImageOCR = (() => {
         const titleSectionSignalCount = [hasWordTitleSignal, hasPhraseTitleSignal, hasSentenceTitleSignal].filter(Boolean).length;
         const bodySectionSignalCount = [hasWordSignal, hasPhraseSignal, hasSentenceSignal].filter(Boolean).length;
         const mixedSections = filenameDirected
-            ? fileNameSections.length > 1
+            ? filenameSections.length > 1
             : (titleSectionSignalCount >= 2 || bodySectionSignalCount >= 2);
         const unitNameHint = stripFileExtension(fileName).match(/Unit\s*\d+[\s:.\-]*[A-Za-z][A-Za-z\s'-]*/i)?.[0]?.trim() || '';
 
         let forceSection = null;
         if (filenameDirected) {
-            forceSection = fileNameSections.length === 1 ? fileNameSections[0] : null;
+            forceSection = filenameSections.length === 1 ? filenameSections[0] : null;
         } else if (!mixedSections) {
             if (hasSentenceTitleSignal) forceSection = 'sentences';
             else if (hasPhraseTitleSignal) forceSection = 'phrases';
