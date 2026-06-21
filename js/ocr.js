@@ -368,6 +368,45 @@ const ImageOCR = (() => {
             .filter(Boolean);
     }
 
+    function mergeOrderedSectionMaps(section, ...maps) {
+        const merged = new Map();
+        maps.forEach((map) => {
+            if (!(map instanceof Map)) return;
+            map.forEach((text, number) => {
+                const normalized = normalizeBlockTextBySection(text, section);
+                if (!normalized) return;
+                const existing = merged.get(number);
+                if (!existing || countEnglishWords(normalized) >= countEnglishWords(existing)) {
+                    merged.set(number, normalized);
+                }
+            });
+        });
+        return merged;
+    }
+
+    function extractNumberedSectionItemsFromOcrLines(ocrData, section) {
+        const lines = Array.isArray(ocrData && ocrData.lines) ? ocrData.lines : [];
+        const ordered = new Map();
+
+        lines.forEach((lineData) => {
+            const line = fixCommonOcrTextIssues(normalizeOcrLineText(lineData && lineData.text), section === 'sentences');
+            if (!line) return;
+            const numberedSegments = extractNumberedLineSegments(line);
+            if (numberedSegments.length === 0) return;
+
+            numberedSegments.forEach((segment) => {
+                const normalized = normalizeBlockTextBySection(segment.text, section);
+                if (!normalized) return;
+                const existing = ordered.get(segment.number);
+                if (!existing || countEnglishWords(normalized) >= countEnglishWords(existing)) {
+                    ordered.set(segment.number, normalized);
+                }
+            });
+        });
+
+        return ordered;
+    }
+
     function mergeSentenceItemsByOrder(currentItems, extractedItems) {
         if (extractedItems.length === 0) return currentItems;
         if (currentItems.length === 0) return extractedItems;
@@ -1004,6 +1043,8 @@ const ImageOCR = (() => {
         recognizedData = createParseSeed(baseData);
         if (parseHint.forceSection === 'sentences') {
             parseForcedSentenceSection(rawText, parseHint);
+        } else if (parseHint.forceSection === 'phrases' || parseHint.forceSection === 'words') {
+            parseForcedOrderedSection(rawText, parseHint.forceSection, parseHint);
         } else {
             smartParse(rawText, parseHint);
         }
@@ -1684,6 +1725,57 @@ const ImageOCR = (() => {
         autoTranslateAll();
     }
 
+    function parseForcedOrderedSection(rawText, section, parseHint = {}) {
+        const prevMeta = {
+            publisher: recognizedData.publisher || '',
+            grade: recognizedData.grade || '',
+            book: recognizedData.book || ''
+        };
+        recognizedData = createEmptyRecognizedData(rawText);
+        recognizedData.publisher = prevMeta.publisher;
+        recognizedData.grade = prevMeta.grade;
+        recognizedData.book = prevMeta.book;
+        recognizedData.unitName = parseHint.unitNameHint || recognizedData.unitName;
+
+        const fullText = parseHint.fullOcrText || rawText;
+        const lineMaps = parseHint.lineNumberedItems || {};
+        const lineSectionMap = lineMaps[section] instanceof Map ? lineMaps[section] : new Map();
+        const mergedMap = mergeOrderedSectionMaps(
+            section,
+            extractOrderedSectionMap(fullText, section),
+            extractOrderedSectionMap(rawText, section),
+            lineSectionMap
+        );
+
+        if (mergedMap.size > 0) {
+            buildOrderedRuntimeItems(mergedMap).forEach(item => {
+                addToSection(item.en, section, { forceSection: true, presetCn: item.cn || '' });
+            });
+        }
+
+        const expectedCount = Math.max(
+            detectExpectedNumberedItemCount(fullText),
+            detectExpectedNumberedItemCount(rawText),
+            getMaxNumberedSentenceIndex(mergedMap)
+        );
+
+        if (recognizedData[section].length === 0 || (expectedCount >= 6 && recognizedData[section].length < Math.ceil(expectedCount * 0.6))) {
+            const snapshot = cloneRecognizedData(recognizedData);
+            recognizedData = createEmptyRecognizedData(fullText || rawText);
+            recognizedData.publisher = prevMeta.publisher;
+            recognizedData.grade = prevMeta.grade;
+            recognizedData.book = prevMeta.book;
+            recognizedData.unitName = parseHint.unitNameHint || recognizedData.unitName;
+            smartParse(fullText || rawText, { ...parseHint, forceSection: section });
+            const fallbackParsed = cloneRecognizedData(recognizedData);
+            recognizedData = snapshot;
+            mergeRecognizedData(recognizedData, reclassifyForcedSectionItems(fallbackParsed, section));
+        }
+
+        normalizeRecognizedCollections(recognizedData);
+        autoTranslateAll();
+    }
+
     function buildUsableRawTextFromOcr(ocrData) {
         const rawText = String((ocrData && ocrData.text) || '').trim();
         const lines = Array.isArray(ocrData && ocrData.lines) ? ocrData.lines : [];
@@ -1827,20 +1919,26 @@ const ImageOCR = (() => {
                 };
                 uploadedImageReferences.push(sourceRef);
                 const baseRawText = buildUsableRawTextFromOcr(ocrData);
-                const sentenceRawText = buildSentenceExerciseRawTextFromOcr(ocrData);
+                const exerciseRawText = buildSentenceExerciseRawTextFromOcr(ocrData);
                 const numberedLineSentences = extractNumberedSentencesFromOcrLines(ocrData);
-                const parseSeedText = sentenceRawText || ocrData.text || baseRawText;
+                const parseSeedText = exerciseRawText || ocrData.text || baseRawText;
                 const parseHint = detectSourceParseHint(file.name, parseSeedText);
                 if (parseHint.filenameDirected) usedStrictFilenameRouting = true;
+                parseHint.lineNumberedItems = {
+                    words: extractNumberedSectionItemsFromOcrLines(ocrData, 'words'),
+                    phrases: extractNumberedSectionItemsFromOcrLines(ocrData, 'phrases'),
+                    sentences: numberedLineSentences
+                };
                 parseHint.lineNumberedSentences = numberedLineSentences;
+                const preferredStructuredText = parseHint.forceSection === 'words' ? baseRawText : exerciseRawText;
                 parseHint.fullOcrText = String(
-                    (parseHint.forceSection === 'sentences' ? sentenceRawText : '') ||
+                    (parseHint.forceSection ? preferredStructuredText : '') ||
                     (ocrData && ocrData.text) ||
                     baseRawText ||
                     ''
                 );
-                const rawText = parseHint.forceSection === 'sentences'
-                    ? sentenceRawText
+                const rawText = parseHint.forceSection
+                    ? preferredStructuredText
                     : baseRawText;
                 let parsedData = null;
 
