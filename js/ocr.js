@@ -1474,7 +1474,10 @@ const ImageOCR = (() => {
                         parseHint.forceSection || ''
                     );
                     if (hasAiItems(aiResult)) {
-                        parsedData = buildRecognizedDataFromAiStructure(aiResult, aggregateData, rawText);
+                        parsedData = expandSentenceItemsFromFullOcr(
+                            buildRecognizedDataFromAiStructure(aiResult, aggregateData, rawText),
+                            parseHint.fullOcrText
+                        );
                     }
                 }
 
