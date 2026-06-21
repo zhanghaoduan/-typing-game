@@ -67,12 +67,16 @@ const ImageOCR = (() => {
         return data;
     }
 
-    function buildItemDedupKey(text, section = '') {
+    function buildItemDedupKey(text, section = '', skipOcrCleanup = false) {
         const raw = String(text || '').trim();
         if (!raw) return '';
 
         let normalized = raw;
-        if (section === 'words') {
+        // 可信来源（如 CSV）的内容不做 OCR 清洗截断，避免不同词组的尾部被裁掉后
+        // 生成相同的 key 而被误判为重复（例如 take a boat ride / take a deep breath）。
+        if (skipOcrCleanup) {
+            normalized = raw;
+        } else if (section === 'words') {
             normalized = normalizeWordCandidate(raw);
         } else {
             normalized = fixCommonOcrTextIssues(trimTrailingCarryover(trimTrailingOcrNoise(raw)), section === 'sentences');
@@ -92,7 +96,7 @@ const ImageOCR = (() => {
         const merged = new Map();
         (items || []).forEach((item) => {
             if (!item) return;
-            const key = buildItemDedupKey(item.en, section);
+            const key = buildItemDedupKey(item.en, section, item._cnSource === 'csv');
             if (!key) return;
 
             const candidate = { ...item };
@@ -2084,6 +2088,11 @@ const ImageOCR = (() => {
                     recognizedData.unitName = csvData.unitName;
                 }
             });
+
+            // CSV 自带明确的 单词/词组/句子 标识，按标识导入即可，不再做智能（DeepSeek）重分类。
+            if (csvImports.length > 0) {
+                usedStrictFilenameRouting = true;
+            }
 
             if (!recognizedData.unitName) {
                 recognizedData.unitName = deriveUnitNameFromFiles(files);
