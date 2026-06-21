@@ -630,21 +630,19 @@ const ImageOCR = (() => {
             forceSection = 'phrases';
         }
 
-        // Strong numbered sentence content can override a misleading file name,
+        // Strong numbered sentence content should override a misleading file name,
         // but not explicit phrase/word signals recognized from the image itself.
         if (
             !hasPhraseTitleSignal &&
             !hasWordTitleSignal &&
             !hasPhraseSignal &&
             !hasWordSignal &&
-            !hasPhraseFileNameSignal &&
-            !hasWordFileNameSignal &&
             strongSentenceContent
         ) {
             forceSection = 'sentences';
         }
 
-        if (!forceSection && numberedLines.length >= 3 && !hasPhraseFileNameSignal && !hasWordFileNameSignal) {
+        if (!forceSection && numberedLines.length >= 3) {
             const sentenceStarters = /^(i|we|you|he|she|it|they|this|that|these|those|my|our|his|her|their|tom|love|a|an|the|in|hard)\b/i;
             const fallbackSentenceLikeCount = numberedLines.filter(line => {
                 const english = extractEnglish(line) || trimTrailingOcrNoise(line.replace(/^\s*\d{1,2}[.\s、:]*/g, '').trim());
