@@ -14,6 +14,7 @@ const ImageOCR = (() => {
     let translationRequestSeq = 0;
     let uploadedImageReferences = [];
     let recognitionSummary = null;
+    let layoutOcrCapability = 'unknown';
 
     function createEmptyRecognizedData(raw = '') {
         return {
@@ -740,13 +741,97 @@ const ImageOCR = (() => {
 
     function buildRecognitionSummary(fileStats = []) {
         const summaryStats = Array.isArray(fileStats) ? fileStats : [];
+        const accuracyValues = summaryStats
+            .map(entry => Number(entry && entry.accuracy))
+            .filter(value => Number.isFinite(value) && value > 0);
         return {
             imageCount: summaryStats.length,
             fileStats: summaryStats,
             totalWords: summaryStats.reduce((sum, entry) => sum + (entry.words || 0), 0),
             totalPhrases: summaryStats.reduce((sum, entry) => sum + (entry.phrases || 0), 0),
-            totalSentences: summaryStats.reduce((sum, entry) => sum + (entry.sentences || 0), 0)
+            totalSentences: summaryStats.reduce((sum, entry) => sum + (entry.sentences || 0), 0),
+            averageAccuracy: accuracyValues.length > 0
+                ? Math.round(accuracyValues.reduce((sum, value) => sum + value, 0) / accuracyValues.length)
+                : 0
         };
+    }
+
+    function formatOcrProviderLabel(provider) {
+        const value = String(provider || '').trim().toLowerCase();
+        if (!value) return 'Unknown OCR';
+        if (value === 'tesseract') return 'Tesseract OCR';
+        if (value === 'azure-document-intelligence-layout') return 'Document Intelligence Layout';
+        return provider;
+    }
+
+    function normalizeOcrLines(lines, fallbackConfidence = 0) {
+        return (Array.isArray(lines) ? lines : [])
+            .map(line => ({
+                text: String(line && line.text || '').replace(/\s+/g, ' ').trim(),
+                confidence: Number(line && (line.confidence ?? line.conf))
+            }))
+            .filter(line => line.text)
+            .map(line => ({
+                text: line.text,
+                confidence: Number.isFinite(line.confidence) ? line.confidence : fallbackConfidence
+            }));
+    }
+
+    function buildTesseractOcrSource(ocrData) {
+        const lines = normalizeOcrLines(ocrData && ocrData.lines);
+        const lineAccuracy = lines
+            .map(line => Number(line.confidence))
+            .filter(value => Number.isFinite(value) && value > 0);
+        const wordAccuracy = (Array.isArray(ocrData && ocrData.words) ? ocrData.words : [])
+            .map(word => Number(word && (word.confidence ?? word.conf)))
+            .filter(value => Number.isFinite(value) && value > 0);
+        const accuracyPool = lineAccuracy.length > 0 ? lineAccuracy : wordAccuracy;
+        const accuracy = accuracyPool.length > 0
+            ? Math.round(accuracyPool.reduce((sum, value) => sum + value, 0) / accuracyPool.length)
+            : 0;
+        return {
+            provider: 'tesseract',
+            accuracy,
+            data: {
+                text: String((ocrData && ocrData.text) || '').trim(),
+                lines
+            }
+        };
+    }
+
+    async function fetchLayoutOcrFromImage(imageData, fileName = '') {
+        if (layoutOcrCapability === 'unavailable') return null;
+        try {
+            const response = await fetch('/api/ocr/layout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ imageData, fileName })
+            });
+            if (!response.ok) {
+                if (response.status !== 503) {
+                    console.warn('[OCR] Document Intelligence skipped:', response.status);
+                } else {
+                    layoutOcrCapability = 'unavailable';
+                }
+                return null;
+            }
+            const data = await response.json();
+            const lines = normalizeOcrLines(data && data.lines, Number(data && data.accuracy) || 0);
+            const text = String(data && data.text || '').trim();
+            if (!text && lines.length === 0) return null;
+            layoutOcrCapability = 'available';
+            return {
+                provider: String(data && data.provider || 'document-intelligence-layout'),
+                accuracy: Number(data && data.accuracy) || 0,
+                data: {
+                    text: text || lines.map(line => line.text).join('\n').trim(),
+                    lines
+                }
+            };
+        } catch (err) {
+            console.warn('[OCR] Document Intelligence request failed:', err);
+            return null;
+        }
     }
 
     function detectExpectedNumberedItemCount(text) {
@@ -1701,39 +1786,54 @@ const ImageOCR = (() => {
                     `正在识别图片 ${i + 1}/${imageFiles.length}... Recognizing image ${i + 1}/${imageFiles.length}...`
                 );
 
-                const result = await Tesseract.recognize(optimizedImageData, 'eng', {
-                    logger: (m) => {
-                        if (m.status === 'recognizing text') {
-                            updateOverallProgress(
-                                progressFill,
-                                statusEl,
-                                sourceIndex,
-                                totalSources,
-                                0.1 + m.progress * 0.9,
-                                `${buildSourceProgressLabel('图片 Image', i + 1, imageFiles.length, file.name)} ${Math.round(m.progress * 100)}%`
-                            );
+                let ocrSource = await fetchLayoutOcrFromImage(optimizedImageData, file.name);
+                if (!ocrSource) {
+                    const result = await Tesseract.recognize(optimizedImageData, 'eng', {
+                        logger: (m) => {
+                            if (m.status === 'recognizing text') {
+                                updateOverallProgress(
+                                    progressFill,
+                                    statusEl,
+                                    sourceIndex,
+                                    totalSources,
+                                    0.1 + m.progress * 0.9,
+                                    `${buildSourceProgressLabel('图片 Image', i + 1, imageFiles.length, file.name)} ${Math.round(m.progress * 100)}%`
+                                );
+                            }
                         }
-                    }
-                });
+                    });
+                    ocrSource = buildTesseractOcrSource(result.data);
+                } else {
+                    updateOverallProgress(
+                        progressFill,
+                        statusEl,
+                        sourceIndex,
+                        totalSources,
+                        0.95,
+                        `${buildSourceProgressLabel('图片 Image', i + 1, imageFiles.length, file.name)} Layout OCR`
+                    );
+                }
+
+                const ocrData = ocrSource.data || { text: '', lines: [] };
 
                 const sourceRef = {
                     kind: 'image',
                     index: i,
                     name: file.name,
                     imageSrc: imageData,
-                    rawText: String((result.data && result.data.text) || '')
+                    rawText: String((ocrData && ocrData.text) || '')
                 };
                 uploadedImageReferences.push(sourceRef);
-                const baseRawText = buildUsableRawTextFromOcr(result.data);
-                const sentenceRawText = buildSentenceExerciseRawTextFromOcr(result.data);
-                const numberedLineSentences = extractNumberedSentencesFromOcrLines(result.data);
-                const parseSeedText = sentenceRawText || result.data.text || baseRawText;
+                const baseRawText = buildUsableRawTextFromOcr(ocrData);
+                const sentenceRawText = buildSentenceExerciseRawTextFromOcr(ocrData);
+                const numberedLineSentences = extractNumberedSentencesFromOcrLines(ocrData);
+                const parseSeedText = sentenceRawText || ocrData.text || baseRawText;
                 const parseHint = detectSourceParseHint(file.name, parseSeedText);
                 if (parseHint.filenameDirected) usedStrictFilenameRouting = true;
                 parseHint.lineNumberedSentences = numberedLineSentences;
                 parseHint.fullOcrText = String(
                     (parseHint.forceSection === 'sentences' ? sentenceRawText : '') ||
-                    (result.data && result.data.text) ||
+                    (ocrData && ocrData.text) ||
                     baseRawText ||
                     ''
                 );
@@ -1782,6 +1882,8 @@ const ImageOCR = (() => {
                 }
                 imageStats.push({
                     name: file.name,
+                    provider: ocrSource.provider || 'unknown',
+                    accuracy: Number(ocrSource.accuracy) || 0,
                     words: (parsedData.words || []).length,
                     phrases: (parsedData.phrases || []).length,
                     sentences: (parsedData.sentences || []).length
@@ -2966,7 +3068,7 @@ const ImageOCR = (() => {
             html += `<div class="proofread-summary-card">
                 <div class="proofread-summary-header">
                     <strong>📊 识别统计 Recognition Summary</strong>
-                    <span>共 ${recognitionSummary.imageCount} 张图片</span>
+                    <span>共 ${recognitionSummary.imageCount} 张图片 · 平均准确率 ${recognitionSummary.averageAccuracy || 0}%</span>
                 </div>
                 <div class="proofread-summary-total">
                     合计：单词 ${recognitionSummary.totalWords} / 词组 ${recognitionSummary.totalPhrases} / 句子 ${recognitionSummary.totalSentences}
@@ -2975,7 +3077,7 @@ const ImageOCR = (() => {
                     ${recognitionSummary.fileStats.map((entry, index) => `
                         <div class="proofread-summary-row">
                             <span class="proofread-summary-name">${index + 1}. ${escapeHtml(entry.name || '')}</span>
-                            <span class="proofread-summary-counts">单词 ${entry.words || 0} · 词组 ${entry.phrases || 0} · 句子 ${entry.sentences || 0}</span>
+                            <span class="proofread-summary-counts">${escapeHtml(formatOcrProviderLabel(entry.provider))} · 准确率 ${Number(entry.accuracy) || 0}% · 单词 ${entry.words || 0} · 词组 ${entry.phrases || 0} · 句子 ${entry.sentences || 0}</span>
                         </div>
                     `).join('')}
                 </div>

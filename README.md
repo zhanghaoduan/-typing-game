@@ -176,6 +176,13 @@ Web Speech API 语音合成兼容性：
 ## 🤖 可选 AI 句子识图
 
 - 句子题图片现在支持可选的 AI 识图补全通道。
+- 普通图片 OCR 现已支持优先走 Azure **Document Intelligence Layout**，未配置时自动回退到浏览器 Tesseract OCR。
+- 服务端环境变量（任选一组命名）：
+  - `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` + `AZURE_DOCUMENT_INTELLIGENCE_API_KEY`
+  - `DOCUMENT_INTELLIGENCE_ENDPOINT` + `DOCUMENT_INTELLIGENCE_API_KEY`
+  - `FORM_RECOGNIZER_ENDPOINT` + `FORM_RECOGNIZER_KEY`
+  - 可选：`DOCUMENT_INTELLIGENCE_API_VERSION`（默认 `2024-11-30`）、`DOCUMENT_INTELLIGENCE_MODEL`（默认 `prebuilt-layout`）
+- 识别统计区域会显示每张图片的 OCR 来源和平均准确率（按识别词置信度汇总）。
 - 如果服务端配置了以下任一组环境变量，前端在识别“句子”类图片时会优先调用 AI 提取完整句子：
   - `DASHSCOPE_API_KEY`，可选 `DASHSCOPE_VISION_MODEL`、`DASHSCOPE_BASE_URL`
   - `GEMINI_API_KEY`，可选 `GEMINI_VISION_MODEL`

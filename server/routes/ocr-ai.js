@@ -2,6 +2,32 @@ const express = require('express');
 
 const router = express.Router();
 
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getDocumentIntelligenceConfig() {
+    const endpoint = String(
+        process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT ||
+        process.env.DOCUMENT_INTELLIGENCE_ENDPOINT ||
+        process.env.FORM_RECOGNIZER_ENDPOINT ||
+        ''
+    ).replace(/\/+$/, '');
+    const apiKey = String(
+        process.env.AZURE_DOCUMENT_INTELLIGENCE_API_KEY ||
+        process.env.DOCUMENT_INTELLIGENCE_API_KEY ||
+        process.env.FORM_RECOGNIZER_KEY ||
+        ''
+    ).trim();
+    if (!endpoint || !apiKey) return null;
+    return {
+        endpoint,
+        apiKey,
+        apiVersion: process.env.DOCUMENT_INTELLIGENCE_API_VERSION || '2024-11-30',
+        model: process.env.DOCUMENT_INTELLIGENCE_MODEL || 'prebuilt-layout'
+    };
+}
+
 function getVisionConfig() {
     if (process.env.DASHSCOPE_API_KEY) {
         return {
@@ -96,6 +122,149 @@ function extractGeminiText(payload) {
         .map(part => String(part && part.text || ''))
         .join('\n')
         .trim();
+}
+
+function parseImageDataUrl(imageData) {
+    const match = String(imageData || '').match(/^data:(image\/[A-Za-z0-9.+-]+);base64,(.+)$/);
+    if (!match) return null;
+    return {
+        mimeType: match[1],
+        base64: match[2]
+    };
+}
+
+function average(values) {
+    const nums = (Array.isArray(values) ? values : []).filter(value => Number.isFinite(value));
+    if (nums.length === 0) return null;
+    return nums.reduce((sum, value) => sum + value, 0) / nums.length;
+}
+
+function getWordConfidenceSpans(analyzeResult) {
+    const pages = Array.isArray(analyzeResult && analyzeResult.pages) ? analyzeResult.pages : [];
+    const spans = [];
+    pages.forEach((page) => {
+        (Array.isArray(page && page.words) ? page.words : []).forEach((word) => {
+            const confidence = Number(word && word.confidence);
+            if (!Number.isFinite(confidence)) return;
+            const wordSpans = Array.isArray(word && word.spans) ? word.spans : [];
+            wordSpans.forEach((span) => {
+                const offset = Number(span && span.offset);
+                const length = Number(span && span.length);
+                if (!Number.isFinite(offset) || !Number.isFinite(length)) return;
+                spans.push({
+                    start: offset,
+                    end: offset + length,
+                    confidence
+                });
+            });
+        });
+    });
+    return spans;
+}
+
+function buildLayoutLineConfidence(line, wordSpans, fallbackConfidence) {
+    const spans = Array.isArray(line && line.spans) ? line.spans : [];
+    const confidences = [];
+    spans.forEach((span) => {
+        const start = Number(span && span.offset);
+        const length = Number(span && span.length);
+        if (!Number.isFinite(start) || !Number.isFinite(length)) return;
+        const end = start + length;
+        wordSpans.forEach((word) => {
+            if (word.start < end && start < word.end) confidences.push(word.confidence);
+        });
+    });
+    const avg = average(confidences);
+    return Number.isFinite(avg) ? avg : fallbackConfidence;
+}
+
+function buildDocumentLayoutPayload(analyzeResult) {
+    const content = String(analyzeResult && analyzeResult.content || '').trim();
+    const pages = Array.isArray(analyzeResult && analyzeResult.pages) ? analyzeResult.pages : [];
+    const wordSpans = getWordConfidenceSpans(analyzeResult);
+    const globalConfidence = average(wordSpans.map(word => word.confidence));
+    const lines = [];
+
+    pages.forEach((page) => {
+        (Array.isArray(page && page.lines) ? page.lines : []).forEach((line) => {
+            const text = String(line && line.content || '').replace(/\s+/g, ' ').trim();
+            if (!text) return;
+            const confidence = buildLayoutLineConfidence(line, wordSpans, globalConfidence);
+            lines.push({
+                text,
+                confidence: Number.isFinite(confidence) ? Math.round(confidence * 100) : 0
+            });
+        });
+    });
+
+    return {
+        text: content || lines.map(line => line.text).join('\n').trim(),
+        lines,
+        accuracy: Number.isFinite(globalConfidence) ? Math.round(globalConfidence * 100) : 0,
+        wordCount: wordSpans.length,
+        lineCount: lines.length
+    };
+}
+
+async function analyzeWithDocumentIntelligence(imageData) {
+    const config = getDocumentIntelligenceConfig();
+    if (!config) return { available: false };
+
+    const parsedImage = parseImageDataUrl(imageData);
+    if (!parsedImage) throw new Error('Invalid image data URL');
+
+    const analyzeUrl = `${config.endpoint}/documentintelligence/documentModels/${encodeURIComponent(config.model)}:analyze?api-version=${encodeURIComponent(config.apiVersion)}`;
+    const startResponse = await fetch(analyzeUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Ocp-Apim-Subscription-Key': config.apiKey
+        },
+        body: JSON.stringify({
+            base64Source: parsedImage.base64
+        })
+    });
+
+    if (!startResponse.ok) {
+        const message = await startResponse.text().catch(() => '');
+        throw new Error(`Document Intelligence analyze failed: ${startResponse.status} ${message}`.trim());
+    }
+
+    const operationLocation = startResponse.headers.get('operation-location') || startResponse.headers.get('Operation-Location');
+    if (!operationLocation) {
+        throw new Error('Document Intelligence operation-location missing');
+    }
+
+    let payload = null;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        if (attempt > 0) await sleep(1200);
+        const pollResponse = await fetch(operationLocation, {
+            headers: {
+                'Ocp-Apim-Subscription-Key': config.apiKey
+            }
+        });
+        if (!pollResponse.ok) {
+            const message = await pollResponse.text().catch(() => '');
+            throw new Error(`Document Intelligence poll failed: ${pollResponse.status} ${message}`.trim());
+        }
+        payload = await pollResponse.json();
+        const status = String(payload && payload.status || '').toLowerCase();
+        if (status === 'succeeded') break;
+        if (status === 'failed' || status === 'canceled') {
+            throw new Error(`Document Intelligence ${status}`);
+        }
+    }
+
+    const analyzeResult = payload && payload.analyzeResult;
+    if (!analyzeResult) {
+        throw new Error('Document Intelligence analyzeResult missing');
+    }
+
+    return {
+        available: true,
+        provider: 'azure-document-intelligence-layout',
+        ...buildDocumentLayoutPayload(analyzeResult)
+    };
 }
 
 function parseJsonObject(text) {
@@ -314,6 +483,25 @@ function flattenSentences(result) {
     }
     return [];
 }
+
+router.post('/layout', async (req, res) => {
+    try {
+        const imageData = String(req.body && req.body.imageData || '').trim();
+        if (!imageData.startsWith('data:image/')) {
+            return res.status(400).json({ error: 'imageData is required' });
+        }
+
+        const result = await analyzeWithDocumentIntelligence(imageData);
+        if (!result.available) {
+            return res.status(503).json({ error: 'Document Intelligence not configured' });
+        }
+
+        return res.json(result);
+    } catch (err) {
+        console.warn('[ocr-ai] layout failed:', err.message);
+        return res.status(500).json({ error: 'Document Intelligence OCR failed' });
+    }
+});
 
 router.post('/ai-sentences', async (req, res) => {
     try {
