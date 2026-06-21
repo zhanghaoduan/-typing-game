@@ -186,30 +186,65 @@ const ImageOCR = (() => {
     }
 
     function sanitizeItemForPersistence(item) {
-        const sourceRef = item && item._sourceRef && item._sourceRef.imageSrc
-            ? {
-                kind: String(item._sourceRef.kind || 'image'),
-                index: Number.isFinite(item._sourceRef.index) ? item._sourceRef.index : 0,
-                name: String(item._sourceRef.name || '').trim(),
-                imageSrc: String(item._sourceRef.imageSrc || '').trim(),
-                rawText: String(item._sourceRef.rawText || '').trim()
-            }
-            : null;
         const sanitized = {
             en: String(item && item.en || '').trim(),
             cn: String(item && item.cn || '').trim(),
             difficulty: Number(item && item.difficulty) || 1
         };
-        if (sourceRef && sourceRef.imageSrc) sanitized._sourceRef = sourceRef;
         return sanitized;
     }
 
+    function normalizeSourceRefPayload(sourceRef) {
+        if (!sourceRef || !sourceRef.imageSrc) return null;
+        return {
+            refId: String(sourceRef.refId || '').trim(),
+            kind: String(sourceRef.kind || 'image'),
+            index: Number.isFinite(sourceRef.index) ? sourceRef.index : 0,
+            name: String(sourceRef.name || '').trim(),
+            imageSrc: String(sourceRef.imageSrc || '').trim(),
+            rawText: String(sourceRef.rawText || '').trim()
+        };
+    }
+
     function buildPersistableUnit(unit) {
+        const sourceRefs = [];
+        const refKeyToId = new Map();
+        let nextRefId = 1;
+
+        const getSourceRefId = (sourceRef) => {
+            const normalized = normalizeSourceRefPayload(sourceRef);
+            if (!normalized || !normalized.imageSrc) return '';
+            const refKey = `${normalized.kind}|${normalized.index}|${normalized.name}|${normalized.imageSrc.slice(0, 64)}`;
+            const existing = refKeyToId.get(refKey);
+            if (existing) return existing;
+            const refId = `ocr-ref-${nextRefId++}`;
+            normalized.refId = refId;
+            refKeyToId.set(refKey, refId);
+            sourceRefs.push(normalized);
+            return refId;
+        };
+
+        const serializeItem = (item) => {
+            const serialized = sanitizeItemForPersistence(item);
+            const refId = getSourceRefId(item && item._sourceRef);
+            if (refId) {
+                const sourceRef = item && item._sourceRef ? item._sourceRef : {};
+                serialized._sourceRef = {
+                    refId,
+                    kind: String(sourceRef.kind || 'image'),
+                    index: Number.isFinite(sourceRef.index) ? sourceRef.index : 0,
+                    name: String(sourceRef.name || '').trim()
+                };
+            }
+            return serialized;
+        };
+
         return {
             ...unit,
-            words: (unit.words || []).map(sanitizeItemForPersistence),
-            phrases: (unit.phrases || []).map(sanitizeItemForPersistence),
-            sentences: (unit.sentences || []).map(sanitizeItemForPersistence)
+            words: (unit.words || []).map(serializeItem),
+            phrases: (unit.phrases || []).map(serializeItem),
+            sentences: (unit.sentences || []).map(serializeItem),
+            source_refs_json: sourceRefs
         };
     }
 
@@ -3447,25 +3482,33 @@ const ImageOCR = (() => {
         return uploadedImageReferences[0] || null;
     }
 
-    function reviveStoredSourceRef(item) {
-        if (!item || !item._sourceRef || !item._sourceRef.imageSrc) return null;
+    function reviveStoredSourceRef(item, sourceRefs = []) {
+        if (!item || !item._sourceRef) return null;
+        const refId = String(item._sourceRef.refId || '').trim();
+        const sourceRefList = Array.isArray(sourceRefs) ? sourceRefs : [];
+        const matchedRef = refId
+            ? sourceRefList.find(ref => String(ref && ref.refId || '').trim() === refId)
+            : null;
+        const resolved = matchedRef || item._sourceRef;
+        if (!resolved || !resolved.imageSrc) return null;
         return {
-            kind: String(item._sourceRef.kind || 'image'),
-            index: Number.isFinite(item._sourceRef.index) ? item._sourceRef.index : 0,
-            name: String(item._sourceRef.name || '').trim(),
-            imageSrc: String(item._sourceRef.imageSrc || '').trim(),
-            rawText: String(item._sourceRef.rawText || '').trim()
+            refId: refId || String(resolved.refId || '').trim(),
+            kind: String(resolved.kind || 'image'),
+            index: Number.isFinite(resolved.index) ? resolved.index : 0,
+            name: String(resolved.name || '').trim(),
+            imageSrc: String(resolved.imageSrc || '').trim(),
+            rawText: String(resolved.rawText || '').trim()
         };
     }
 
-    function mapStoredProofreadItem(item) {
+    function mapStoredProofreadItem(item, sourceRefs = []) {
         const mapped = {
             en: String(item && item.en || '').trim(),
             cn: String(item && item.cn || '').trim()
         };
         const difficulty = Number(item && item.difficulty);
         if (Number.isFinite(difficulty) && difficulty > 0) mapped.difficulty = difficulty;
-        const sourceRef = reviveStoredSourceRef(item);
+        const sourceRef = reviveStoredSourceRef(item, sourceRefs);
         if (sourceRef) mapped._sourceRef = sourceRef;
         return mapped;
     }
@@ -3551,18 +3594,18 @@ const ImageOCR = (() => {
     async function saveUnitToServer(unit) {
         if (!AuthUI.isLoggedIn()) return null;
         try {
-            const persistableUnit = buildPersistableUnit(unit);
             const res = await AuthUI.apiRequest('/units', {
                 method: 'POST',
                 body: JSON.stringify({
-                    name: persistableUnit.name,
-                    words: persistableUnit.words,
-                    phrases: persistableUnit.phrases,
-                    sentences: persistableUnit.sentences,
-                    publisher: persistableUnit.publisher || '',
-                    grade: persistableUnit.grade || '',
-                    book: persistableUnit.book || '',
-                    unit_no: persistableUnit.unitNo || 0
+                    name: unit.name,
+                    words: unit.words,
+                    phrases: unit.phrases,
+                    sentences: unit.sentences,
+                    publisher: unit.publisher || '',
+                    grade: unit.grade || '',
+                    book: unit.book || '',
+                    unit_no: unit.unitNo || 0,
+                    source_refs_json: unit.source_refs_json || []
                 })
             });
             if (!res.ok) return null;
@@ -3576,18 +3619,18 @@ const ImageOCR = (() => {
     async function updateUnitOnServer(id, unit) {
         if (!AuthUI.isLoggedIn()) return null;
         try {
-            const persistableUnit = buildPersistableUnit(unit);
             const res = await AuthUI.apiRequest(`/units/${id}`, {
                 method: 'PUT',
                 body: JSON.stringify({
-                    name: persistableUnit.name,
-                    words: persistableUnit.words,
-                    phrases: persistableUnit.phrases,
-                    sentences: persistableUnit.sentences,
-                    publisher: persistableUnit.publisher || '',
-                    grade: persistableUnit.grade || '',
-                    book: persistableUnit.book || '',
-                    unit_no: persistableUnit.unitNo || 0
+                    name: unit.name,
+                    words: unit.words,
+                    phrases: unit.phrases,
+                    sentences: unit.sentences,
+                    publisher: unit.publisher || '',
+                    grade: unit.grade || '',
+                    book: unit.book || '',
+                    unit_no: unit.unitNo || 0,
+                    source_refs_json: unit.source_refs_json || []
                 })
             });
             if (!res.ok) return null;
@@ -3695,16 +3738,25 @@ const ImageOCR = (() => {
     function buildUnitCardHtml(unit, opts) {
         const date = new Date(unit.created_at).toLocaleDateString('zh-CN');
         const total = (unit.words || []).length + (unit.phrases || []).length + (unit.sentences || []).length;
-        const badge = unit.is_public ? '<span class="public-badge">公开</span>' : '';
+        const statusBadges = [
+            unit.is_public ? '<span class="public-badge">公开</span>' : '',
+            !unit.is_public && unit.pending_public ? '<span class="public-badge" style="background:#f59e0b;">待管理员公开</span>' : ''
+        ].filter(Boolean).join(' ');
         const author = opts && opts.showAuthor ? `👤 ${escapeHtml(unit.author || '')} | ` : '';
         const editable = !(opts && opts.showAuthor); // public-library cards are read-only
+        const submitAction = editable && !unit.is_public
+            ? (unit.pending_public
+                ? '<button class="btn btn-small btn-outline" disabled title="已提交管理员公开审核">⏳ 待公开</button>'
+                : `<button class="btn btn-small btn-outline" onclick="ImageOCR.submitServerUnitForPublic(${unit.id})" title="提交管理员公开">📤 提交公开</button>`)
+            : '';
         const actions = editable
-            ? `<button class="btn btn-small btn-info" onclick="ImageOCR.editServerUnit(${unit.id})" title="修改编辑">✏️</button>
+            ? `${submitAction}
+               <button class="btn btn-small btn-info" onclick="ImageOCR.editServerUnit(${unit.id})" title="修改编辑">✏️</button>
                <button class="btn btn-small btn-danger" onclick="ImageOCR.deleteServerUnit(${unit.id})" title="删除">🗑️</button>`
             : '';
         return `<div class="saved-unit-card${opts && opts.showAuthor ? ' public-unit' : ''}" data-unit-id="${escapeHtml(String(unit.id || ''))}">
             <div class="saved-unit-info">
-                <h4>${escapeHtml(unit.name)} ${editable ? badge : ''}</h4>
+                <h4>${escapeHtml(unit.name)} ${editable ? statusBadges : (unit.is_public ? '<span class="public-badge">公开</span>' : '')}</h4>
                 <p>${author}📅 ${date} | 📝 ${(unit.words||[]).length}词 + ${(unit.phrases||[]).length}短语 + ${(unit.sentences||[]).length}句子 = ${total}项</p>
             </div>
             <div class="saved-unit-actions">
@@ -3940,24 +3992,44 @@ const ImageOCR = (() => {
         Game.startCustomPractice(items, type === 'listening' ? 'listening' : 'mixed');
     }
 
-    // Edit a server unit
-    function editServerUnit(unitId) {
-        const unit = _cachedServerUnits.find(u => u.id === unitId);
+    function loadServerUnitForEdit(unit) {
         if (!unit) return;
-
+        const sourceRefs = Array.isArray(unit.source_refs_json) ? unit.source_refs_json : [];
         recognizedData.unitName = unit.name;
         recognizedData.publisher = unit.publisher || '';
         recognizedData.grade = unit.grade || '';
         recognizedData.book = unit.book || '';
         recognizedData.unitNo = unit.unit_no || 0;
-        recognizedData.words = (unit.words || []).map(mapStoredProofreadItem);
-        recognizedData.phrases = (unit.phrases || []).map(mapStoredProofreadItem);
-        recognizedData.sentences = (unit.sentences || []).map(mapStoredProofreadItem);
-        recognizedData._editingServerId = unitId;
+        recognizedData.words = (unit.words || []).map(item => mapStoredProofreadItem(item, sourceRefs));
+        recognizedData.phrases = (unit.phrases || []).map(item => mapStoredProofreadItem(item, sourceRefs));
+        recognizedData.sentences = (unit.sentences || []).map(item => mapStoredProofreadItem(item, sourceRefs));
+        recognizedData._editingServerId = unit.id;
         recognizedData._editingIdx = null;
         restoreUploadedReferencesFromRecognizedData();
-
         showProofreadUI();
+    }
+
+    // Edit a server unit
+    function editServerUnit(unitId) {
+        const unit = _cachedServerUnits.find(u => u.id === unitId);
+        if (!unit) return;
+        loadServerUnitForEdit(unit);
+    }
+
+    async function submitServerUnitForPublic(unitId) {
+        if (!confirm('提交后管理员可查看原图并修改，审核通过后所有成员可见。继续提交？')) return;
+        try {
+            const res = await AuthUI.apiRequest(`/units/${unitId}/submit-public`, { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) {
+                alert(data.error || '提交失败 Submit failed');
+                return;
+            }
+            alert(data.message || '已提交管理员公开审核');
+            await renderSavedUnits({ focusUnitId: unitId });
+        } catch (e) {
+            alert('提交失败 Submit failed');
+        }
     }
 
     // Delete a server unit
@@ -4026,11 +4098,12 @@ const ImageOCR = (() => {
         const unit = units[unitIdx];
         if (!unit) return;
 
+        const sourceRefs = Array.isArray(unit.source_refs_json) ? unit.source_refs_json : [];
         // Load unit data into recognizedData
         recognizedData.unitName = unit.name;
-        recognizedData.words = (unit.words || []).map(mapStoredProofreadItem);
-        recognizedData.phrases = (unit.phrases || []).map(mapStoredProofreadItem);
-        recognizedData.sentences = (unit.sentences || []).map(mapStoredProofreadItem);
+        recognizedData.words = (unit.words || []).map(item => mapStoredProofreadItem(item, sourceRefs));
+        recognizedData.phrases = (unit.phrases || []).map(item => mapStoredProofreadItem(item, sourceRefs));
+        recognizedData.sentences = (unit.sentences || []).map(item => mapStoredProofreadItem(item, sourceRefs));
 
         // Store which unit we're editing so save overwrites it
         recognizedData._editingIdx = unitIdx;
@@ -4132,6 +4205,8 @@ const ImageOCR = (() => {
         renderSavedUnits,
         practiceServerUnit,
         editServerUnit,
+        loadServerUnitForEdit,
+        submitServerUnitForPublic,
         deleteServerUnit,
         setSortMode,
         setGradeFilter,

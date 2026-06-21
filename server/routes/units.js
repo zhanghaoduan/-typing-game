@@ -8,7 +8,7 @@ const router = express.Router();
 router.get('/', authenticate, (req, res) => {
     const myUnits = db.prepare(`
         SELECT id, name, words, phrases, sentences, is_public, publisher, grade, book, unit_no, display_order,
-               source_file_name, source_mime_type, source_file_path,
+               source_file_name, source_mime_type, source_file_path, source_refs_json, pending_public,
                created_at, updated_at
         FROM units
         WHERE user_id = ?
@@ -17,7 +17,7 @@ router.get('/', authenticate, (req, res) => {
 
     const publicUnits = db.prepare(`
         SELECT u.id, u.name, u.words, u.phrases, u.sentences, u.is_public, u.publisher, u.grade, u.book, u.unit_no, u.display_order,
-               u.source_file_name, u.source_mime_type, u.source_file_path,
+               u.source_file_name, u.source_mime_type, u.source_file_path, u.source_refs_json, u.pending_public,
                u.created_at, u.updated_at, users.username as author
         FROM units u JOIN users ON u.user_id = users.id
         WHERE u.is_public = 1 AND u.user_id != ?
@@ -29,7 +29,8 @@ router.get('/', authenticate, (req, res) => {
         ...unit,
         words: JSON.parse(unit.words || '[]'),
         phrases: JSON.parse(unit.phrases || '[]'),
-        sentences: JSON.parse(unit.sentences || '[]')
+        sentences: JSON.parse(unit.sentences || '[]'),
+        source_refs_json: JSON.parse(unit.source_refs_json || '[]')
     });
 
     res.json({
@@ -40,7 +41,7 @@ router.get('/', authenticate, (req, res) => {
 
 // Save a new unit
 router.post('/', authenticate, (req, res) => {
-    const { name, words, phrases, sentences, publisher, grade, book, source_file_name, source_mime_type, source_file_path, source_text } = req.body;
+    const { name, words, phrases, sentences, publisher, grade, book, source_file_name, source_mime_type, source_file_path, source_text, source_refs_json } = req.body;
     let { unit_no } = req.body;
     let { display_order } = req.body;
 
@@ -65,8 +66,8 @@ router.post('/', authenticate, (req, res) => {
 
     const result = db.prepare(`
         INSERT INTO units (user_id, name, words, phrases, sentences, publisher, grade, book, unit_no,
-                           display_order, source_file_name, source_mime_type, source_file_path, source_text)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                           display_order, source_file_name, source_mime_type, source_file_path, source_text, source_refs_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         req.user.id,
         name,
@@ -81,7 +82,8 @@ router.post('/', authenticate, (req, res) => {
         source_file_name || '',
         source_mime_type || '',
         source_file_path || '',
-        source_text || ''
+        source_text || '',
+        JSON.stringify(source_refs_json || [])
     );
 
     res.json({ id: result.lastInsertRowid, message: '保存成功 Saved successfully' });
@@ -100,7 +102,7 @@ router.put('/:id', authenticate, (req, res) => {
         return res.status(403).json({ error: '无权修改 No permission to edit' });
     }
 
-    const { name, words, phrases, sentences, publisher, grade, book, source_file_name, source_mime_type, source_file_path, source_text } = req.body;
+    const { name, words, phrases, sentences, publisher, grade, book, source_file_name, source_mime_type, source_file_path, source_text, source_refs_json } = req.body;
     let { unit_no } = req.body;
     let { display_order } = req.body;
 
@@ -117,7 +119,7 @@ router.put('/:id', authenticate, (req, res) => {
     db.prepare(`
         UPDATE units SET name = ?, words = ?, phrases = ?, sentences = ?,
             publisher = ?, grade = ?, book = ?, unit_no = ?, display_order = ?,
-            source_file_name = ?, source_mime_type = ?, source_file_path = ?, source_text = ?,
+            source_file_name = ?, source_mime_type = ?, source_file_path = ?, source_text = ?, source_refs_json = ?,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
     `).run(
@@ -134,6 +136,7 @@ router.put('/:id', authenticate, (req, res) => {
         source_mime_type !== undefined ? source_mime_type : (unit.source_mime_type || ''),
         source_file_path !== undefined ? source_file_path : (unit.source_file_path || ''),
         source_text !== undefined ? source_text : (unit.source_text || ''),
+        source_refs_json !== undefined ? JSON.stringify(source_refs_json || []) : (unit.source_refs_json || '[]'),
         req.params.id
     );
 
@@ -164,18 +167,19 @@ router.get('/admin/all', authenticate, requireAdmin, (req, res) => {
     const units = db.prepare(`
         SELECT u.id, u.name, u.words, u.phrases, u.sentences, u.is_public,
                u.publisher, u.grade, u.book, u.unit_no, u.display_order,
-               u.source_file_name, u.source_mime_type, u.source_file_path,
+               u.source_file_name, u.source_mime_type, u.source_file_path, u.source_refs_json, u.pending_public,
                u.created_at, u.updated_at,
                users.username as author, u.user_id
         FROM units u JOIN users ON u.user_id = users.id
-        ORDER BY u.display_order ASC, CASE WHEN u.unit_no > 0 THEN u.unit_no ELSE 999999 END ASC, u.name COLLATE NOCASE ASC, u.id ASC
+        ORDER BY u.pending_public DESC, u.display_order ASC, CASE WHEN u.unit_no > 0 THEN u.unit_no ELSE 999999 END ASC, u.name COLLATE NOCASE ASC, u.id ASC
     `).all();
 
     const parseUnit = (unit) => ({
         ...unit,
         words: JSON.parse(unit.words || '[]'),
         phrases: JSON.parse(unit.phrases || '[]'),
-        sentences: JSON.parse(unit.sentences || '[]')
+        sentences: JSON.parse(unit.sentences || '[]'),
+        source_refs_json: JSON.parse(unit.source_refs_json || '[]')
     });
 
     res.json({ units: units.map(parseUnit) });
@@ -192,8 +196,8 @@ router.post('/admin/publish/:id', authenticate, requireAdmin, (req, res) => {
     // Copy to public library (create a new unit owned by admin, marked as public)
     const result = db.prepare(`
         INSERT INTO units (user_id, name, words, phrases, sentences, is_public,
-                           publisher, grade, book, unit_no, display_order, source_file_name, source_mime_type, source_file_path, source_text)
-        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                           publisher, grade, book, unit_no, display_order, source_file_name, source_mime_type, source_file_path, source_text, source_refs_json)
+        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         req.user.id,
         unit.name,
@@ -208,10 +212,65 @@ router.post('/admin/publish/:id', authenticate, requireAdmin, (req, res) => {
         unit.source_file_name || '',
         unit.source_mime_type || '',
         unit.source_file_path || '',
-        unit.source_text || ''
+        unit.source_text || '',
+        unit.source_refs_json || '[]'
     );
 
     res.json({ id: result.lastInsertRowid, message: '已发布到公共库 Published to public library' });
+});
+
+router.post('/:id/submit-public', authenticate, (req, res) => {
+    const unit = db.prepare('SELECT * FROM units WHERE id = ?').get(req.params.id);
+    if (!unit) {
+        return res.status(404).json({ error: '单元不存在 Unit not found' });
+    }
+    if (unit.user_id !== req.user.id && req.user.role !== 'admin') {
+        return res.status(403).json({ error: '无权提交 No permission to submit' });
+    }
+    if (unit.is_public) {
+        return res.json({ pending_public: 0, message: '该单元已公开 This unit is already public' });
+    }
+    if (unit.pending_public) {
+        return res.json({ pending_public: 1, message: '已提交管理员审核 Already submitted for admin review' });
+    }
+
+    db.prepare(`
+        UPDATE units
+        SET pending_public = 1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    `).run(req.params.id);
+
+    res.json({ pending_public: 1, message: '已提交管理员公开审核 Submitted for admin public review' });
+});
+
+router.post('/admin/approve-public/:id', authenticate, requireAdmin, (req, res) => {
+    const unit = db.prepare('SELECT * FROM units WHERE id = ?').get(req.params.id);
+    if (!unit) {
+        return res.status(404).json({ error: '单元不存在 Unit not found' });
+    }
+
+    db.prepare(`
+        UPDATE units
+        SET is_public = 1, pending_public = 0, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    `).run(req.params.id);
+
+    res.json({ is_public: 1, pending_public: 0, message: '已审核并公开 Approved and published' });
+});
+
+router.post('/admin/reject-public/:id', authenticate, requireAdmin, (req, res) => {
+    const unit = db.prepare('SELECT * FROM units WHERE id = ?').get(req.params.id);
+    if (!unit) {
+        return res.status(404).json({ error: '单元不存在 Unit not found' });
+    }
+
+    db.prepare(`
+        UPDATE units
+        SET pending_public = 0, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    `).run(req.params.id);
+
+    res.json({ pending_public: 0, message: '已退回为私有单元 Returned to private unit' });
 });
 
 // Toggle public status (admin only)
@@ -223,7 +282,7 @@ router.post('/admin/toggle-public/:id', authenticate, requireAdmin, (req, res) =
     }
 
     const newStatus = unit.is_public ? 0 : 1;
-    db.prepare('UPDATE units SET is_public = ? WHERE id = ?').run(newStatus, req.params.id);
+    db.prepare('UPDATE units SET is_public = ?, pending_public = ? WHERE id = ?').run(newStatus, 0, req.params.id);
 
     res.json({ is_public: newStatus, message: newStatus ? '已设为公开 Set as public' : '已设为私有 Set as private' });
 });

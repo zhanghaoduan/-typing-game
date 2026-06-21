@@ -498,16 +498,27 @@ const App = (() => {
             container.innerHTML = '';
             units.forEach(unit => {
                 const totalItems = unit.words.length + unit.phrases.length + unit.sentences.length;
+                const statusBadge = unit.is_public
+                    ? '<span class="public-badge">公开</span>'
+                    : unit.pending_public
+                    ? '<span class="public-badge" style="background:#f59e0b;">待公开审核</span>'
+                    : '';
+                const sourceHint = unit.source_file_name
+                    ? ` | 原文件: ${escapeHtml(unit.source_file_name)}`
+                    : (Array.isArray(unit.source_refs_json) && unit.source_refs_json.length ? ' | 含原图参考' : '');
                 const div = document.createElement('div');
                 div.className = 'admin-unit-card';
                 div.innerHTML = `
                     <div class="admin-unit-info">
-                        <h4>${unit.name} ${unit.is_public ? '<span class="public-badge">公开</span>' : ''}</h4>
+                        <h4>${unit.name} ${statusBadge}</h4>
                         <p>作者: ${unit.author} | 单词: ${unit.words.length} | 词组: ${unit.phrases.length} | 句子: ${unit.sentences.length}</p>
+                        <p>${unit.pending_public ? '📤 学生已提交公开审核' : (unit.is_public ? '🌍 所有成员可见' : '🔒 私有单元')}${sourceHint}</p>
                         <p class="unit-date">${new Date(unit.created_at).toLocaleDateString()}</p>
                     </div>
                     <div class="admin-unit-actions">
-                        ${!unit.is_public ? `<button class="btn btn-small btn-primary" onclick="App.publishUnit(${unit.id})">📢 发布到公共库</button>` : ''}
+                        ${unit.pending_public ? `<button class="btn btn-small btn-info" onclick="App.reviewSubmittedUnit(${unit.id})">🖼️ 原图编辑</button>` : ''}
+                        ${unit.pending_public ? `<button class="btn btn-small btn-primary" onclick="App.approveSubmittedUnit(${unit.id})">✅ 审核公开</button>` : (!unit.is_public ? `<button class="btn btn-small btn-primary" onclick="App.publishUnit(${unit.id})">📢 发布到公共库</button>` : '')}
+                        ${unit.pending_public ? `<button class="btn btn-small btn-outline" onclick="App.rejectSubmittedUnit(${unit.id})">↩️ 退回私有</button>` : ''}
                         <button class="btn btn-small btn-outline" onclick="App.togglePublic(${unit.id})">${unit.is_public ? '设为私有' : '设为公开'}</button>
                         <button class="btn btn-small btn-danger" onclick="App.deleteUnit(${unit.id})">🗑️ 删除</button>
                     </div>
@@ -532,6 +543,44 @@ const App = (() => {
         }
     }
 
+    async function approveSubmittedUnit(id) {
+        try {
+            const res = await AuthUI.apiRequest(`/units/admin/approve-public/${id}`, { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) {
+                alert(data.error || '操作失败 Operation failed');
+                return;
+            }
+            alert(data.message || '已审核并公开');
+            adminUnitsCache = [];
+            renderAdminPanel();
+            if (typeof ImageOCR !== 'undefined' && ImageOCR.renderSavedUnits) {
+                try { ImageOCR.renderSavedUnits({ focusUnitId: id }); } catch (e) {}
+            }
+        } catch (e) {
+            alert('操作失败 Operation failed');
+        }
+    }
+
+    async function rejectSubmittedUnit(id) {
+        try {
+            const res = await AuthUI.apiRequest(`/units/admin/reject-public/${id}`, { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) {
+                alert(data.error || '操作失败 Operation failed');
+                return;
+            }
+            alert(data.message || '已退回私有');
+            adminUnitsCache = [];
+            renderAdminPanel();
+            if (typeof ImageOCR !== 'undefined' && ImageOCR.renderSavedUnits) {
+                try { ImageOCR.renderSavedUnits({ focusUnitId: id }); } catch (e) {}
+            }
+        } catch (e) {
+            alert('操作失败 Operation failed');
+        }
+    }
+
     // Admin: toggle public status
     async function togglePublic(id) {
         try {
@@ -542,6 +591,23 @@ const App = (() => {
             renderAdminPanel();
         } catch (e) {
             alert('操作失败 Operation failed');
+        }
+    }
+
+    async function reviewSubmittedUnit(id) {
+        const units = await fetchAdminUnits(true);
+        const unit = (units || []).find(item => String(item.id) === String(id));
+        if (!unit) {
+            alert('未找到要审核的单元 Unit not found');
+            return;
+        }
+        showPage('page-upload');
+        if (typeof ImageOCR !== 'undefined' && ImageOCR.loadServerUnitForEdit) {
+            ImageOCR.loadServerUnitForEdit(unit);
+            const proofArea = document.getElementById('proofread-results');
+            if (proofArea && proofArea.scrollIntoView) {
+                proofArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
         }
     }
 
@@ -1846,6 +1912,9 @@ const App = (() => {
         getPromptMode,
         renderAdminPanel,
         publishUnit,
+        approveSubmittedUnit,
+        rejectSubmittedUnit,
+        reviewSubmittedUnit,
         togglePublic,
         deleteUnit,
         renderProfile,
