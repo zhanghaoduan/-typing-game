@@ -1290,12 +1290,13 @@ const ImageOCR = (() => {
         return fixed;
     }
 
-    function extractNumberedSentenceFallbacks(rawText) {
-        const text = String(rawText || '').replace(/\r/g, ' ').replace(/\n+/g, ' ');
+    function extractNumberedLineSegments(line) {
+        const text = String(line || '').trim();
+        if (!text) return [];
+
         const starts = [];
         const startRegex = /(?:^|\s)(\d{1,2})[.\s、:]+/g;
         let match;
-
         while ((match = startRegex.exec(text)) !== null) {
             const offset = /^\s/.test(match[0]) ? 1 : 0;
             starts.push({
@@ -1305,31 +1306,80 @@ const ImageOCR = (() => {
             });
         }
 
-        const fallbacks = new Map();
-
-        starts.forEach((start, index) => {
+        return starts.map((start, index) => {
             const startPos = start.pos + start.length;
             const endPos = index + 1 < starts.length ? starts[index + 1].pos : text.length;
-            const block = text.slice(startPos, endPos).trim();
-            let boundaryText = block
-                .replace(/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
-            const punctuationMatch = boundaryText.match(/^(.+?[.!?])(?:\s|$)/);
-            if (punctuationMatch) {
-                boundaryText = punctuationMatch[1].trim();
-            }
+            const blockText = text.slice(startPos, endPos).trim();
+            return {
+                number: start.number,
+                text: fixCommonOcrTextIssues(trimTrailingOcrNoise(blockText), true).trim()
+            };
+        }).filter(entry => entry.text);
+    }
+
+    function extractNumberedSentenceFallbacks(rawText) {
+        const lines = String(rawText || '')
+            .replace(/\r/g, '\n')
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean);
+        const fallbacks = new Map();
+        let currentNumber = null;
+        let currentParts = [];
+
+        const commitCurrent = () => {
+            if (!currentNumber || currentParts.length === 0) return;
             const normalized = fixCommonOcrTextIssues(
-                trimTrailingCarryover(trimTrailingOcrNoise(boundaryText)),
+                trimTrailingCarryover(trimTrailingOcrNoise(currentParts.join(' '))),
                 true
-            ).trim();
-            if (!normalized || countEnglishWords(normalized) < 3) return;
-            const existing = fallbacks.get(start.number);
-            if (!existing || countEnglishWords(normalized) > countEnglishWords(existing)) {
-                fallbacks.set(start.number, normalized);
+            ).replace(/\s+/g, ' ').trim();
+            if (!normalized || countEnglishWords(normalized) < 3) {
+                currentNumber = null;
+                currentParts = [];
+                return;
             }
+            const existing = fallbacks.get(currentNumber);
+            if (!existing || countEnglishWords(normalized) > countEnglishWords(existing)) {
+                fallbacks.set(currentNumber, normalized);
+            }
+            currentNumber = null;
+            currentParts = [];
+        };
+
+        lines.forEach((rawLine) => {
+            const line = fixCommonOcrTextIssues(trimTrailingOcrNoise(rawLine), true);
+            if (!line) return;
+
+            const numberedSegments = extractNumberedLineSegments(line);
+            if (numberedSegments.length > 0) {
+                commitCurrent();
+                if (numberedSegments.length === 1) {
+                    currentNumber = numberedSegments[0].number;
+                    currentParts = [numberedSegments[0].text];
+                    return;
+                }
+
+                numberedSegments.forEach((segment) => {
+                    const normalized = fixCommonOcrTextIssues(
+                        trimTrailingCarryover(trimTrailingOcrNoise(segment.text)),
+                        true
+                    ).trim();
+                    if (!normalized || countEnglishWords(normalized) < 3) return;
+                    const existing = fallbacks.get(segment.number);
+                    if (!existing || countEnglishWords(normalized) > countEnglishWords(existing)) {
+                        fallbacks.set(segment.number, normalized);
+                    }
+                });
+                return;
+            }
+
+            if (!currentNumber) return;
+            const english = extractEnglish(line);
+            if (!english) return;
+            currentParts.push(english);
         });
 
+        commitCurrent();
         return fallbacks;
     }
 
