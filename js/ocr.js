@@ -1311,10 +1311,18 @@ const ImageOCR = (() => {
             const startPos = start.pos + start.length;
             const endPos = index + 1 < starts.length ? starts[index + 1].pos : text.length;
             const block = text.slice(startPos, endPos).trim();
-            const english = extractEnglish(block);
-            if (!english) return;
-            const normalized = fixCommonOcrTextIssues(trimTrailingCarryover(trimTrailingOcrNoise(english)), true);
-            if (!normalized) return;
+            const normalized = fixCommonOcrTextIssues(
+                trimTrailingCarryover(
+                    trimTrailingOcrNoise(
+                        block
+                            .replace(/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/g, ' ')
+                            .replace(/\s+/g, ' ')
+                            .trim()
+                    )
+                ),
+                true
+            ).trim();
+            if (!normalized || countEnglishWords(normalized) < 3) return;
             const existing = fallbacks.get(start.number);
             if (!existing || countEnglishWords(normalized) > countEnglishWords(existing)) {
                 fallbacks.set(start.number, normalized);
@@ -1559,15 +1567,19 @@ const ImageOCR = (() => {
                 }
 
                 if (!parsedData) {
-                    parsedData = expandSentenceItemsFromFullOcr(
-                        parseOcrTextToRecognizedData(rawText, aggregateData, parseHint),
-                        parseHint.fullOcrText
-                    );
+                    parsedData = parseOcrTextToRecognizedData(rawText, aggregateData, parseHint);
+                    if (parseHint.forceSection === 'sentences') {
+                        parsedData = expandSentenceItemsFromFullOcr(parsedData, parseHint.fullOcrText);
+                    }
                 }
-                parsedData = rebalanceParsedSections(parsedData, parseHint);
-                parsedData = completeMixedSectionsFromFullOcr(parsedData, parseHint);
-                if (parseHint.forceSection === 'sentences' && !parseHint.mixedSections) {
-                    lockRecognizedSection(parsedData, 'sentences');
+                if (parseHint.filenameDirected && parseHint.forceSection && !parseHint.mixedSections) {
+                    parsedData = reclassifyForcedSectionItems(parsedData, parseHint.forceSection);
+                } else {
+                    parsedData = rebalanceParsedSections(parsedData, parseHint);
+                    parsedData = completeMixedSectionsFromFullOcr(parsedData, parseHint);
+                }
+                if (parseHint.forceSection && !parseHint.mixedSections) {
+                    lockRecognizedSection(parsedData, parseHint.forceSection);
                 }
                 imageStats.push({
                     name: file.name,
