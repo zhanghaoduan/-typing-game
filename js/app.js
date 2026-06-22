@@ -1792,7 +1792,8 @@ const App = (() => {
                         <button class="btn btn-small btn-primary" onclick="App.practiceMaterialUnit('${unit.id}','words')">单词</button>
                         <button class="btn btn-small btn-secondary" onclick="App.practiceMaterialUnit('${unit.id}','phrases')">词组</button>
                         <button class="btn btn-small btn-accent" onclick="App.practiceMaterialUnit('${unit.id}','sentences')">句子</button>
-                        <button class="btn btn-small btn-warning" onclick="App.practiceMaterialUnit('${unit.id}','listening')">听力</button>${adminBtns}
+                        <button class="btn btn-small btn-warning" onclick="App.practiceMaterialUnit('${unit.id}','listening')">听力</button>
+                        <button class="btn btn-small btn-info" onclick="VerbGame.start('${unit.id}')" title="考动词过去式 / 过去分词">🎯 时态</button>${adminBtns}
                     </div>
                 </div>`;
     }
@@ -1942,6 +1943,7 @@ const App = (() => {
         renderMaterialUnits,
         reorderMaterialUnit,
         practiceMaterialUnit,
+        findMaterialUnit,
         editMaterialUnit,
         deleteMaterialUnit,
         cancelMaterialEdit,
