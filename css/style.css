@@ -2247,7 +2247,28 @@ body.theme-dark .dict-ex-cn { color:#a78bfa; }
 body.theme-dark {
     background: #0f172a !important;
     color: #e5e7eb;
+    /* Re-map CSS variables so every card / surface that uses var(--bg-card)
+       picks up a dark surface and the default text colour is legible. */
+    --bg: #0f172a;
+    --bg-card: #1e293b;
+    --text: #e5e7eb;
+    --text-light: #94a3b8;
+    --border: #334155;
+    --primary-light: #a78bfa;
 }
+/* Make the home stats panel high-contrast in dark mode (bright icons + gold
+   numbers on a dark slate panel). */
+body.theme-dark .home-stats {
+    background: #1e293b;
+    border: 1px solid #334155;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.35);
+}
+body.theme-dark .home-stats .stat-value { color: #fbbf24; }
+body.theme-dark .home-stats .stat-label { color: #cbd5e1; }
+/* Same treatment for the Achievements stats grid. */
+body.theme-dark #ach-stars,
+body.theme-dark #ach-coins,
+body.theme-dark #ach-badges { color: #fbbf24; }
 body.theme-dark .dark-toggle-btn {
     background: rgba(30, 41, 59, 0.85);
     border-color: rgba(255,255,255,0.1);
