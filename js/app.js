@@ -1812,6 +1812,7 @@ const App = (() => {
                         <button class="btn btn-small btn-outline" onclick="App.reorderMaterialUnit('${unit.id}','down')" title="下移 Move Down">↓</button>
                         <button class="btn btn-small btn-info" onclick="App.editMaterialUnit('${unit.id}')" title="修改编辑">✏️</button>
                         <button class="btn btn-small btn-danger" onclick="App.deleteMaterialUnit('${unit.id}')" title="删除">🗑️</button>` : '';
+        const sc = (mode) => Storage.buttonStateClass ? Storage.buttonStateClass(unit.id, mode) : '';
         return `<div class="saved-unit-card">
                     <div class="saved-unit-info">
                         <h4>${escapeHtml(unit.name)} ${badge}</h4>
@@ -1819,11 +1820,11 @@ const App = (() => {
                         <p>📝 ${w}词 + ${p}词组 + ${s}句子 = ${total}项</p>
                     </div>
                     <div class="saved-unit-actions">
-                        <button class="btn btn-small btn-primary" onclick="App.practiceMaterialUnit('${unit.id}','words')">单词</button>
-                        <button class="btn btn-small btn-secondary" onclick="App.practiceMaterialUnit('${unit.id}','phrases')">词组</button>
-                        <button class="btn btn-small btn-accent" onclick="App.practiceMaterialUnit('${unit.id}','sentences')">句子</button>
-                        <button class="btn btn-small btn-warning" onclick="App.practiceMaterialUnit('${unit.id}','listening')">听力</button>
-                        <button class="btn btn-small btn-info" onclick="VerbGame.start('${unit.id}')" title="考动词过去式 / 过去分词">🎯 时态</button>${adminBtns}
+                        <button class="btn btn-small ${sc('words')}" onclick="App.practiceMaterialUnit('${unit.id}','words')">单词</button>
+                        <button class="btn btn-small ${sc('phrases')}" onclick="App.practiceMaterialUnit('${unit.id}','phrases')">词组</button>
+                        <button class="btn btn-small ${sc('sentences')}" onclick="App.practiceMaterialUnit('${unit.id}','sentences')">句子</button>
+                        <button class="btn btn-small ${sc('listening')}" onclick="App.practiceMaterialUnit('${unit.id}','listening')">听力</button>
+                        <button class="btn btn-small ${sc('verb')}" onclick="VerbGame.start('${unit.id}')" title="考动词过去式 / 过去分词">🎯 时态</button>${adminBtns}
                     </div>
                 </div>`;
     }
@@ -1841,6 +1842,7 @@ const App = (() => {
         setMaterialAdminUI(admin);
         container.innerHTML = '<p class="empty-hint">加载中... Loading...</p>';
         try {
+            if (Storage.loadPracticeStatus) { try { await Storage.loadPracticeStatus(true); } catch (_) {} }
             const res = await AuthUI.apiRequest('/units');
             const data = await res.json();
             const allUnits = admin ? (data.myUnits || []) : (data.publicUnits || []);
@@ -1887,6 +1889,7 @@ const App = (() => {
                 return;
             }
             let html = header;
+            html += '<div class="unit-state-legend"><span><span class="legend-dot legend-none"></span>没做过</span><span><span class="legend-dot legend-progress"></span>进行中</span><span><span class="legend-dot legend-done"></span>完成过 (≥80%)</span></div>';
             materialUnits.forEach(unit => { html += materialUnitCardHtml(unit, admin); });
             container.innerHTML = html;
         } catch (e) {

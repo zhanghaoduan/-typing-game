@@ -131,6 +131,52 @@ body {
     font-size: 14px;
 }
 
+/* Practice-status button colors (used on unit cards).
+   Replaces the old btn-primary/secondary/etc. modifier so users can see
+   at a glance which sub-practices they've never done, are mid-way through,
+   or have already mastered. */
+.btn-state-none {
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+}
+.btn-state-none:hover { background: #e2e8f0; }
+.btn-state-progress {
+    background: #fff7ed;
+    color: #9a3412;
+    border: 1px solid #fdba74;
+}
+.btn-state-progress:hover { background: #ffedd5; }
+.btn-state-done {
+    background: #ecfdf5;
+    color: #065f46;
+    border: 1px solid #6ee7b7;
+}
+.btn-state-done:hover { background: #d1fae5; }
+body.theme-dark .btn-state-none { background: #1f2937; color: #cbd5e1; border-color: #374151; }
+body.theme-dark .btn-state-progress { background: #3b2410; color: #fed7aa; border-color: #92400e; }
+body.theme-dark .btn-state-done { background: #064e3b; color: #a7f3d0; border-color: #047857; }
+.unit-state-legend {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: #64748b;
+    margin: 4px 0 10px;
+}
+.unit-state-legend .legend-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+.unit-state-legend .legend-none { background: #cbd5e1; }
+.unit-state-legend .legend-progress { background: #fdba74; }
+.unit-state-legend .legend-done { background: #6ee7b7; }
+
 .btn-back {
     background: none;
     border: none;

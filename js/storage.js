@@ -130,10 +130,85 @@ const Storage = (() => {
                 method: 'POST',
                 body: JSON.stringify(payload || {})
             });
+            invalidatePracticeStatus();
         } catch (e) {
             // silent
         }
     }
+
+    // -------- Practice status cache (used to colour unit buttons) --------
+    // Map: refId(string) -> { attempted: Set<mode>, done: Set<mode> }
+    // mode ∈ { 'words','phrases','sentences','listening','all','verb' }
+    let _practiceStatus = null;
+    let _practiceStatusPromise = null;
+
+    function _detectMode(title) {
+        const t = String(title || '');
+        if (/动词时态|时态/.test(t)) return 'verb';
+        if (/全部/.test(t)) return 'all';
+        if (/听力/.test(t)) return 'listening';
+        if (/句子/.test(t)) return 'sentences';
+        if (/词组|短语/.test(t)) return 'phrases';
+        if (/单词/.test(t)) return 'words';
+        return '';
+    }
+
+    async function loadPracticeStatus(force) {
+        if (typeof AuthUI === 'undefined' || !AuthUI.isLoggedIn()) {
+            _practiceStatus = new Map();
+            return _practiceStatus;
+        }
+        if (_practiceStatus && !force) return _practiceStatus;
+        if (_practiceStatusPromise && !force) return _practiceStatusPromise;
+        _practiceStatusPromise = (async () => {
+            try {
+                const res = await AuthUI.apiRequest('/me/practice-history?limit=200');
+                const data = await res.json();
+                const m = new Map();
+                for (const row of (data.history || [])) {
+                    const ref = String(row.ref_id == null ? '' : row.ref_id).trim();
+                    if (!ref) continue;
+                    const mode = _detectMode(row.session_title || '');
+                    if (!mode) continue;
+                    const entry = m.get(ref) || { attempted: new Set(), done: new Set() };
+                    entry.attempted.add(mode);
+                    const attempts = Number(row.attempts) || 0;
+                    const correct = Number(row.correct) || 0;
+                    const score = Number(row.score) || (attempts ? Math.round(correct * 100 / attempts) : 0);
+                    if (score >= 80) entry.done.add(mode);
+                    m.set(ref, entry);
+                }
+                _practiceStatus = m;
+                return m;
+            } catch (_) {
+                _practiceStatus = new Map();
+                return _practiceStatus;
+            } finally {
+                _practiceStatusPromise = null;
+            }
+        })();
+        return _practiceStatusPromise;
+    }
+
+    function getPracticeState(refId, mode) {
+        if (!_practiceStatus) return 'none';
+        const entry = _practiceStatus.get(String(refId));
+        if (!entry || !entry.attempted.has(mode)) return 'none';
+        if (entry.done.has(mode)) return 'done';
+        return 'progress';
+    }
+
+    // Helper: produce the CSS class for a unit/mode button.
+    function buttonStateClass(refId, mode) {
+        return 'btn-state-' + getPracticeState(refId, mode);
+    }
+
+    function invalidatePracticeStatus() {
+        _practiceStatus = null;
+        _practiceStatusPromise = null;
+    }
+
+
 
     // Update specific field(s)
     function update(updates) {
@@ -290,6 +365,10 @@ const Storage = (() => {
         resetAll,
         syncFromServer,
         syncToServer,
-        reportPractice
+        reportPractice,
+        loadPracticeStatus,
+        getPracticeState,
+        buttonStateClass,
+        invalidatePracticeStatus
     };
 })();

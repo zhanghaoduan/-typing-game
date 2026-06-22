@@ -4025,18 +4025,20 @@ const ImageOCR = (() => {
                <button class="btn btn-small btn-info" onclick="ImageOCR.editServerUnit(${unit.id})" title="修改编辑">✏️</button>
                <button class="btn btn-small btn-danger" onclick="ImageOCR.deleteServerUnit(${unit.id})" title="删除">🗑️</button>`
             : '';
+        const sc = (mode) => (typeof Storage !== 'undefined' && Storage.buttonStateClass)
+            ? Storage.buttonStateClass(unit.id, mode) : '';
         return `<div class="saved-unit-card${opts && opts.showAuthor ? ' public-unit' : ''}" data-unit-id="${escapeHtml(String(unit.id || ''))}">
             <div class="saved-unit-info">
                 <h4>${escapeHtml(unit.name)} ${editable ? statusBadges : (unit.is_public ? '<span class="public-badge">公开</span>' : '')}</h4>
                 <p>${author}📅 ${date} | 📝 ${(unit.words||[]).length}词 + ${(unit.phrases||[]).length}短语 + ${(unit.sentences||[]).length}句子 = ${total}项</p>
             </div>
             <div class="saved-unit-actions">
-                <button class="btn btn-small btn-primary" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'words')">单词</button>
-                <button class="btn btn-small btn-secondary" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'phrases')">词组</button>
-                <button class="btn btn-small btn-accent" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'sentences')">句子</button>
-                <button class="btn btn-small btn-warning" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'listening')">听力</button>
-                <button class="btn btn-small btn-outline" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'all')">全部</button>
-                <button class="btn btn-small btn-info" onclick="ImageOCR.startVerbGame(${unit.id})" title="考动词过去式 / 过去分词">🎯 时态</button>
+                <button class="btn btn-small ${sc('words')}" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'words')">单词</button>
+                <button class="btn btn-small ${sc('phrases')}" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'phrases')">词组</button>
+                <button class="btn btn-small ${sc('sentences')}" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'sentences')">句子</button>
+                <button class="btn btn-small ${sc('listening')}" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'listening')">听力</button>
+                <button class="btn btn-small ${sc('all')}" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'all')">全部</button>
+                <button class="btn btn-small ${sc('verb')}" onclick="ImageOCR.startVerbGame(${unit.id})" title="考动词过去式 / 过去分词">🎯 时态</button>
                 ${actions}
             </div>
         </div>`;
@@ -4148,6 +4150,9 @@ const ImageOCR = (() => {
         // If logged in, fetch from server
         if (AuthUI.isLoggedIn()) {
             container.innerHTML = '<p class="empty-hint">加载中... Loading...</p>';
+            if (typeof Storage !== 'undefined' && Storage.loadPracticeStatus) {
+                try { await Storage.loadPracticeStatus(true); } catch (_) {}
+            }
             const serverData = await fetchServerUnits();
             const myUnits = serverData.myUnits || [];
             const publicUnits = serverData.publicUnits || [];
@@ -4158,6 +4163,7 @@ const ImageOCR = (() => {
             }
 
             let html = buildSortToolbar();
+            html += '<div class="unit-state-legend"><span><span class="legend-dot legend-none"></span>没做过</span><span><span class="legend-dot legend-progress"></span>进行中</span><span><span class="legend-dot legend-done"></span>完成过 (≥80%)</span></div>';
 
             // Filter by selected grade (or user's profile grade by default)
             const filt = getEffectiveGradeFilter();
@@ -4201,22 +4207,25 @@ const ImageOCR = (() => {
             return;
         }
 
-        let html = '';
+        let html = '<div class="unit-state-legend"><span><span class="legend-dot legend-none"></span>没做过</span><span><span class="legend-dot legend-progress"></span>进行中</span><span><span class="legend-dot legend-done"></span>完成过 (≥80%)</span></div>';
         units.forEach((unit, idx) => {
             const date = new Date(unit.createdAt).toLocaleDateString('zh-CN');
             const total = (unit.words || []).length + (unit.phrases || []).length + (unit.sentences || []).length;
+            const refId = unit.id || `local-${idx}`;
+            const sc = (mode) => (typeof Storage !== 'undefined' && Storage.buttonStateClass)
+                ? Storage.buttonStateClass(refId, mode) : '';
             html += `<div class="saved-unit-card">
                 <div class="saved-unit-info">
                     <h4>${escapeHtml(unit.name)}</h4>
                     <p>📅 ${date} | 📝 ${(unit.words||[]).length}词 + ${(unit.phrases||[]).length}短语 + ${(unit.sentences||[]).length}句子 = ${total}项</p>
                 </div>
                 <div class="saved-unit-actions">
-                    <button class="btn btn-small btn-primary" onclick="ImageOCR.practiceUnit(${idx}, 'words')">单词</button>
-                    <button class="btn btn-small btn-secondary" onclick="ImageOCR.practiceUnit(${idx}, 'phrases')">词组</button>
-                    <button class="btn btn-small btn-accent" onclick="ImageOCR.practiceUnit(${idx}, 'sentences')">句子</button>
-                    <button class="btn btn-small btn-warning" onclick="ImageOCR.practiceUnit(${idx}, 'listening')">听力</button>
-                    <button class="btn btn-small btn-outline" onclick="ImageOCR.practiceUnit(${idx}, 'all')">全部</button>
-                    <button class="btn btn-small btn-info" onclick="ImageOCR.startVerbGameLocal(${idx})" title="考动词过去式 / 过去分词">🎯 时态</button>
+                    <button class="btn btn-small ${sc('words')}" onclick="ImageOCR.practiceUnit(${idx}, 'words')">单词</button>
+                    <button class="btn btn-small ${sc('phrases')}" onclick="ImageOCR.practiceUnit(${idx}, 'phrases')">词组</button>
+                    <button class="btn btn-small ${sc('sentences')}" onclick="ImageOCR.practiceUnit(${idx}, 'sentences')">句子</button>
+                    <button class="btn btn-small ${sc('listening')}" onclick="ImageOCR.practiceUnit(${idx}, 'listening')">听力</button>
+                    <button class="btn btn-small ${sc('all')}" onclick="ImageOCR.practiceUnit(${idx}, 'all')">全部</button>
+                    <button class="btn btn-small ${sc('verb')}" onclick="ImageOCR.startVerbGameLocal(${idx})" title="考动词过去式 / 过去分词">🎯 时态</button>
                     <button class="btn btn-small btn-info" onclick="ImageOCR.editUnit(${idx})" title="修改编辑">✏️</button>
                     <button class="btn btn-small btn-danger" onclick="ImageOCR.deleteUnit(${idx})" title="删除">🗑️</button>
                 </div>
