@@ -45,17 +45,38 @@
         return false;
     }
 
-    function looksLikeVerb(en, info) {
+    function extractPosList(text) {
+        if (!text) return [];
+        const out = [];
+        const seen = new Set();
+        const re = /(^|[\s;；,，/(\[【])\s*(n|v|vt|vi|aux|adj|adv|prep|conj|pron|art|num|int|interj)\.\s*/gi;
+        let m;
+        while ((m = re.exec(text)) !== null) {
+            let p = m[2].toLowerCase();
+            if (p === 'vt' || p === 'vi' || p === 'aux') p = 'v';
+            if (p === 'interj') p = 'int';
+            if (!seen.has(p)) { out.push(p); seen.add(p); }
+        }
+        return out;
+    }
+
+    // Decide whether a word should be treated as a verb for the quiz.
+    // Priority: teacher-provided Chinese marker > dictionary translation marker.
+    // Only when neither carries a POS tag do we fall back to "has verb forms".
+    function looksLikeVerb(en, info, userCn) {
         if (!info || !info.exchange) return false;
         const ex = info.exchange;
-        // Has past or past_p form different from base — strong signal of a verb.
         const lower = String(en || '').trim().toLowerCase();
         if (!lower || /\s/.test(lower)) return false;
         if (!ex.p && !ex.q) return false;
         const past = String(ex.p || '').toLowerCase();
         const pp = String(ex.q || '').toLowerCase();
-        if (past === lower && pp === lower) return false; // e.g. cut/cut/cut still verb
-        // Additional sanity: tag may indicate POS
+        if (past === lower && pp === lower && lower.length <= 2) return false;
+
+        const cnPos = extractPosList(userCn);
+        if (cnPos.length) return cnPos[0] === 'v';
+        const tPos = extractPosList(info.translation);
+        if (tPos.length) return tPos[0] === 'v';
         return true;
     }
 
@@ -163,7 +184,7 @@
         for (const en of enList) {
             const info = lookups[en];
             if (!info || !info.found) continue;
-            if (!looksLikeVerb(en, info)) continue;
+            if (!looksLikeVerb(en, info, cnMap[en.toLowerCase()])) continue;
             const q = buildQuestion(en, cnMap[en.toLowerCase()], info);
             if (q) qs.push(q);
         }
