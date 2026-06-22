@@ -10,9 +10,14 @@
 
     const state = {
         unit: null,
+        session: null,   // { kind, refId, title }
         questions: [],   // {base, cn, want: 'past'|'pp', answers: [str], all: {past, pp, base, ing, third}}
         index: 0,
         score: 0,
+        attempts: 0,
+        wrongItems: [],  // { en, cn, yourAnswer, type:'word' }
+        startedAt: 0,
+        reported: false,
         revealed: false,
         finished: false
     };
@@ -131,10 +136,65 @@
 
     function open() { ensureModal().style.display = 'flex'; }
     function close() {
+        // Report progress to practice history (even if user closed mid-quiz)
+        try { reportPracticeLog(); } catch (_) {}
         const modal = $(MODAL_ID);
         if (modal) modal.style.display = 'none';
-        state.unit = null; state.questions = []; state.index = 0;
-        state.score = 0; state.revealed = false; state.finished = false;
+        state.unit = null; state.session = null;
+        state.questions = []; state.index = 0;
+        state.score = 0; state.attempts = 0; state.wrongItems = [];
+        state.startedAt = 0; state.reported = false;
+        state.revealed = false; state.finished = false;
+    }
+
+    // ----- Practice / SRS reporting -----
+
+    function reportPracticeLog() {
+        if (state.reported) return;
+        if (!state.questions || state.questions.length === 0) return;
+        if (state.attempts === 0 && state.wrongItems.length === 0) return;
+        state.reported = true;
+        const total = state.questions.length;
+        const correct = state.score;
+        const attempts = state.attempts || correct + state.wrongItems.length;
+        const durationMs = state.startedAt ? Date.now() - state.startedAt : 0;
+        const score = total ? Math.round(correct * 100 / total) : 0;
+        const session = state.session || {};
+        const title = session.title
+            || `动词时态 · ${(state.unit && state.unit.name) || ''}`.trim();
+        const payload = {
+            kind: session.kind || 'verb-tense',
+            ref_id: String(session.refId == null ? '' : session.refId),
+            session_title: title,
+            score, stars: 0,
+            correct, attempts,
+            duration_ms: durationMs,
+            wrong_items: state.wrongItems.slice(0, 200)
+        };
+        try {
+            if (typeof Storage !== 'undefined' && Storage.reportPractice) {
+                Storage.reportPractice(payload);
+            }
+        } catch (_) {}
+    }
+
+    function reportSrsForVerb(q, userInput, isCorrect) {
+        try {
+            if (typeof AuthUI === 'undefined' || !AuthUI.isLoggedIn || !AuthUI.isLoggedIn()) return;
+            const headers = { 'Content-Type': 'application/json' };
+            const tok = (AuthUI.getToken && AuthUI.getToken()) || localStorage.getItem('auth_token');
+            if (tok) headers['Authorization'] = 'Bearer ' + tok;
+            fetch('/api/srs/answer', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    en: q.base,
+                    cn: q.cn || '',
+                    correct: !!isCorrect,
+                    input: typeof userInput === 'string' ? userInput.slice(0, 200) : ''
+                })
+            }).catch(() => {});
+        } catch (_) {}
     }
 
     async function start(unitId) {
@@ -142,12 +202,30 @@
             ? App.findMaterialUnit(unitId)
             : null;
         if (!unit) { alert('找不到该单元 Unit not found'); return; }
+        return startWithUnit(unit, {
+            kind: 'verb-tense-material',
+            refId: unit.id,
+            title: `老师标准 ${unit.name || ''} · 动词时态`
+        });
+    }
+
+    async function startWithUnit(unit, opts) {
+        const options = opts || {};
         const words = (unit.words || []).filter(w => w && w.en && !/\s/.test(w.en.trim()));
         if (!words.length) { alert('该单元没有可用单词 No words available'); return; }
         state.unit = unit;
+        state.session = {
+            kind: options.kind || 'verb-tense',
+            refId: options.refId == null ? '' : options.refId,
+            title: options.title || `动词时态 · ${unit.name || ''}`
+        };
         state.questions = [];
         state.index = 0;
         state.score = 0;
+        state.attempts = 0;
+        state.wrongItems = [];
+        state.startedAt = Date.now();
+        state.reported = false;
         state.revealed = false;
         state.finished = false;
         open();
@@ -229,18 +307,33 @@
         input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } };
     }
 
+    function recordWrong(q, userInput) {
+        const wantLabel = q.want === 'past' ? '过去式' : '过去分词';
+        const expected = (q.answers && q.answers[0]) || '';
+        state.wrongItems.push({
+            en: q.base,
+            cn: `${wantLabel}: ${expected}${q.cn ? ' · ' + q.cn : ''}`,
+            yourAnswer: userInput || '',
+            type: 'word'
+        });
+    }
+
     function submit() {
         if (state.revealed) { next(); return; }
         const q = state.questions[state.index]; if (!q) return;
         const val = ($('vg-input').value || '').trim().toLowerCase();
         if (!val) { $('vg-input').focus(); return; }
+        state.attempts += 1;
         const ok = q.answers.includes(val);
         const fb = $('vg-feedback');
         if (ok) {
             state.score += 1;
+            reportSrsForVerb(q, val, true);
             fb.innerHTML = `<span style="color:#059669;">✅ 正确！Correct.</span> ` + answerHtml(q);
             advanceUI(true);
         } else {
+            recordWrong(q, val);
+            reportSrsForVerb(q, val, false);
             fb.innerHTML = `<span style="color:#dc2626;">❌ 不对。</span> ` + answerHtml(q);
             advanceUI(false);
         }
@@ -249,6 +342,12 @@
     function reveal() {
         if (state.revealed) return;
         const q = state.questions[state.index]; if (!q) return;
+        // Treat reveal/skip as a wrong attempt (records to wrongbook + SRS)
+        const input = $('vg-input');
+        const userInput = (input && (input.value || '').trim()) || '';
+        state.attempts += 1;
+        recordWrong(q, userInput);
+        reportSrsForVerb(q, userInput, false);
         $('vg-feedback').innerHTML = `<span style="color:#6366f1;">💡 答案：</span>` + answerHtml(q);
         advanceUI(false);
     }
@@ -295,6 +394,8 @@
     }
 
     function renderFinish() {
+        state.finished = true;
+        try { reportPracticeLog(); } catch (_) {}
         const total = state.questions.length;
         const pct = total ? Math.round(state.score * 100 / total) : 0;
         $('vg-meta').textContent = '';
@@ -303,6 +404,7 @@
                 <div style="font-size:48px;">${pct >= 80 ? '🏆' : pct >= 60 ? '🎉' : '💪'}</div>
                 <div style="font-size:22px;font-weight:700;margin-top:6px;">${state.score} / ${total} · ${pct}%</div>
                 <div style="color:#666;margin-top:6px;">${pct >= 80 ? '太棒了！Excellent!' : pct >= 60 ? '继续加油 Keep going!' : '多练几遍会更好 Try again!'}</div>
+                ${state.wrongItems.length ? `<div style="color:#888;font-size:12px;margin-top:8px;">错题已记入错题本</div>` : ''}
             </div>`;
         $('vg-submit').style.display = 'none';
         $('vg-next').style.display = 'none';
@@ -310,5 +412,5 @@
         $('vg-skip').style.display = 'none';
     }
 
-    window.VerbGame = { start, close };
+    window.VerbGame = { start, startWithUnit, close };
 })();

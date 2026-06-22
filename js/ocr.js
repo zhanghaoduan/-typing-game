@@ -4036,6 +4036,7 @@ const ImageOCR = (() => {
                 <button class="btn btn-small btn-accent" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'sentences')">句子</button>
                 <button class="btn btn-small btn-warning" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'listening')">听力</button>
                 <button class="btn btn-small btn-outline" onclick="ImageOCR.practiceServerUnit(${unit.id}, 'all')">全部</button>
+                <button class="btn btn-small btn-info" onclick="ImageOCR.startVerbGame(${unit.id})" title="考动词过去式 / 过去分词">🎯 时态</button>
                 ${actions}
             </div>
         </div>`;
@@ -4215,6 +4216,7 @@ const ImageOCR = (() => {
                     <button class="btn btn-small btn-accent" onclick="ImageOCR.practiceUnit(${idx}, 'sentences')">句子</button>
                     <button class="btn btn-small btn-warning" onclick="ImageOCR.practiceUnit(${idx}, 'listening')">听力</button>
                     <button class="btn btn-small btn-outline" onclick="ImageOCR.practiceUnit(${idx}, 'all')">全部</button>
+                    <button class="btn btn-small btn-info" onclick="ImageOCR.startVerbGameLocal(${idx})" title="考动词过去式 / 过去分词">🎯 时态</button>
                     <button class="btn btn-small btn-info" onclick="ImageOCR.editUnit(${idx})" title="修改编辑">✏️</button>
                     <button class="btn btn-small btn-danger" onclick="ImageOCR.deleteUnit(${idx})" title="删除">🗑️</button>
                 </div>
@@ -4328,6 +4330,36 @@ const ImageOCR = (() => {
         } else {
             alert('删除失败 Delete failed');
         }
+    }
+
+    // Launch the verb-tense mini quiz for a server-side My Homework unit.
+    // Wires up practice-log + SRS reporting via VerbGame's session metadata.
+    function startVerbGame(unitId) {
+        const unit = _cachedServerUnits.find(u => u.id === unitId);
+        if (!unit) { alert('找不到该单元 Unit not found'); return; }
+        if (typeof VerbGame === 'undefined' || !VerbGame.startWithUnit) {
+            alert('时态游戏未加载 Verb game not loaded'); return;
+        }
+        VerbGame.startWithUnit(unit, {
+            kind: 'verb-tense-homework',
+            refId: unit.id,
+            title: `作业本 ${unit.name || ''} · 动词时态`
+        });
+    }
+
+    // Verb-tense quiz for a localStorage fallback unit (legacy).
+    function startVerbGameLocal(unitIdx) {
+        const units = getSavedUnits();
+        const unit = units[unitIdx];
+        if (!unit) return;
+        if (typeof VerbGame === 'undefined' || !VerbGame.startWithUnit) {
+            alert('时态游戏未加载 Verb game not loaded'); return;
+        }
+        VerbGame.startWithUnit(unit, {
+            kind: 'verb-tense-homework',
+            refId: unit.id || `local-${unitIdx}`,
+            title: `作业本 ${unit.name || ''} · 动词时态`
+        });
     }
 
     // Practice a saved unit
@@ -4492,6 +4524,8 @@ const ImageOCR = (() => {
         deleteUnit,
         renderSavedUnits,
         practiceServerUnit,
+        startVerbGame,
+        startVerbGameLocal,
         editServerUnit,
         loadServerUnitForEdit,
         submitServerUnitForPublic,

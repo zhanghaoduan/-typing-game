@@ -644,6 +644,9 @@ const App = (() => {
         const kind = String((row && row.kind) || '');
         const ref = String((row && row.ref_id) || '').trim();
         if (kind === 'material') return ref ? `老师标准 Unit ${ref}` : '老师标准练习';
+        if (kind === 'verb-tense-material') return `动词时态 · 老师标准 Unit ${ref || ''}`.trim();
+        if (kind === 'verb-tense-homework') return `动词时态 · 作业本 Unit ${ref || ''}`.trim();
+        if (kind === 'verb-tense' || /^verb-tense/.test(kind)) return `动词时态练习 ${ref || ''}`.trim();
         if (kind === 'module') return ref ? `主题模块 Module ${ref}` : '主题模块练习';
         if (kind === 'level') return ref ? `闯关 Level ${ref}` : '闯关练习';
         if (/^grade\d+-level$/.test(kind)) return ref ? `${kind} · ${ref}` : kind;
