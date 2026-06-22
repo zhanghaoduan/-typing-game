@@ -1743,6 +1743,33 @@ const App = (() => {
         }
     }
 
+    // Normalize a grade label to a canonical form so unit.grade ("七年级下")
+    // matches user.grade ("初一下"). Returns '' for empty / unknown.
+    function normalizeGrade(g) {
+        if (!g) return '';
+        const s = String(g).replace(/\s+/g, '');
+        const map7 = { '七': '初一', '八': '初二', '九': '初三' };
+        let m = s.match(/^([七八九])年级([上下])$/);
+        if (m) return map7[m[1]] + m[2];
+        if (/^初[一二三][上下]$/.test(s)) return s;
+        m = s.match(/^([三四五六])年级([上下])$/);
+        if (m) return '小学' + m[1] + '年级' + m[2];
+        if (/^小学[三四五六]年级[上下]$/.test(s)) return s;
+        if (/^高[一二三][上下]$/.test(s)) return s;
+        return s;
+    }
+
+    // Persisted toggle: when true, show units from all grades regardless of
+    // the user's selected grade. Default false (i.e. filter to user grade).
+    let materialShowAllGrades = false;
+    try { materialShowAllGrades = localStorage.getItem('materialShowAllGrades') === '1'; } catch (_) {}
+
+    function setMaterialShowAllGrades(v) {
+        materialShowAllGrades = !!v;
+        try { localStorage.setItem('materialShowAllGrades', materialShowAllGrades ? '1' : '0'); } catch (_) {}
+        renderMaterialUnits();
+    }
+
     // Toggle the admin-only upload UI vs the student "public library" view.
     function setMaterialAdminUI(admin) {
         const adminArea = document.getElementById('material-admin-area');
@@ -1813,14 +1840,50 @@ const App = (() => {
         try {
             const res = await AuthUI.apiRequest('/units');
             const data = await res.json();
-            materialUnits = admin ? (data.myUnits || []) : (data.publicUnits || []);
+            const allUnits = admin ? (data.myUnits || []) : (data.publicUnits || []);
+
+            const user = AuthUI.getUser ? AuthUI.getUser() : null;
+            const userGrade = normalizeGrade(user && user.grade);
+            const filterOn = !!userGrade && !materialShowAllGrades;
+            const filtered = filterOn
+                ? allUnits.filter(u => normalizeGrade(u.grade) === userGrade)
+                : allUnits;
+            materialUnits = filtered;
+
+            let header = '';
+            if (userGrade) {
+                const total = allUnits.length;
+                const shown = filtered.length;
+                header = `<div class="material-grade-filter" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;padding:8px 12px;background:#f5f7ff;border:1px solid #e0e6ff;border-radius:8px;font-size:13px;">
+                    <span>🎓 当前年级：<strong>${escapeHtml(user.grade)}</strong></span>
+                    <span style="color:#666;">${filterOn ? `仅显示该年级 ${shown} / ${total} 个单元` : `显示全部 ${total} 个单元`}</span>
+                    <label style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input type="checkbox" ${materialShowAllGrades ? 'checked' : ''}
+                               onchange="App.setMaterialShowAllGrades(this.checked)">
+                        显示全部年级 Show all grades
+                    </label>
+                </div>`;
+            } else if (!admin) {
+                header = `<div class="material-grade-filter" style="margin:0 0 12px;padding:8px 12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:13px;">
+                    ⚠️ 还没设置年级，正在显示全部单元。<a href="#" onclick="event.preventDefault();AuthUI.openSetGrade(false);">点此设置年级</a>
+                </div>`;
+            }
+
             if (materialUnits.length === 0) {
-                container.innerHTML = admin
-                    ? '<p class="empty-hint">暂无标准材料，请在下方上传生成 No standard material yet</p>'
-                    : '<p class="empty-hint">老师还没有公开的标准词库 No public standard library yet</p>';
+                let msg;
+                if (admin) {
+                    msg = filterOn
+                        ? '当前年级暂无已保存的标准单元（可在上方关闭年级过滤）'
+                        : '暂无标准材料，请在下方上传生成 No standard material yet';
+                } else {
+                    msg = filterOn
+                        ? '老师还没有发布该年级的标准词库（可在上方关闭年级过滤查看其它年级）'
+                        : '老师还没有公开的标准词库 No public standard library yet';
+                }
+                container.innerHTML = header + `<p class="empty-hint">${msg}</p>`;
                 return;
             }
-            let html = '';
+            let html = header;
             materialUnits.forEach(unit => { html += materialUnitCardHtml(unit, admin); });
             container.innerHTML = html;
         } catch (e) {
@@ -1944,6 +2007,7 @@ const App = (() => {
         reorderMaterialUnit,
         practiceMaterialUnit,
         findMaterialUnit,
+        setMaterialShowAllGrades,
         editMaterialUnit,
         deleteMaterialUnit,
         cancelMaterialEdit,
