@@ -2081,9 +2081,9 @@ const ImageOCR = (() => {
             recognizedData = cloneRecognizedData(aggregateData);
 
             csvImports.forEach((csvData) => {
-                (csvData.words || []).forEach(item => addToSection(item.en || item, 'words', { forceSection: true, presetCn: item.cn || '', presetCnSource: 'csv' }));
-                (csvData.phrases || []).forEach(item => addToSection(item.en || item, 'phrases', { forceSection: true, presetCn: item.cn || '', presetCnSource: 'csv' }));
-                (csvData.sentences || []).forEach(item => addToSection(item.en || item, 'sentences', { forceSection: true, presetCn: item.cn || '', presetCnSource: 'csv' }));
+                (csvData.words || []).forEach(item => addToSection(item.en || item, 'words', { forceSection: true, presetCn: item.cn || '', presetCnSource: 'csv', csvSerial: item._csvSerial }));
+                (csvData.phrases || []).forEach(item => addToSection(item.en || item, 'phrases', { forceSection: true, presetCn: item.cn || '', presetCnSource: 'csv', csvSerial: item._csvSerial }));
+                (csvData.sentences || []).forEach(item => addToSection(item.en || item, 'sentences', { forceSection: true, presetCn: item.cn || '', presetCnSource: 'csv', csvSerial: item._csvSerial }));
                 if (!recognizedData.unitName && csvData.unitName) {
                     recognizedData.unitName = csvData.unitName;
                 }
@@ -2092,6 +2092,17 @@ const ImageOCR = (() => {
             // CSV 自带明确的 单词/词组/句子 标识，按标识导入即可，不再做智能（DeepSeek）重分类。
             if (csvImports.length > 0) {
                 usedStrictFilenameRouting = true;
+                // 按 CSV 序号 排序，确保展示顺序与原文件完全一致。
+                ['words', 'phrases', 'sentences'].forEach(sec => {
+                    const list = recognizedData[sec];
+                    if (Array.isArray(list) && list.some(it => typeof it._csvSerial === 'number')) {
+                        list.sort((a, b) => {
+                            const sa = typeof a._csvSerial === 'number' ? a._csvSerial : Infinity;
+                            const sb = typeof b._csvSerial === 'number' ? b._csvSerial : Infinity;
+                            return sa - sb;
+                        });
+                    }
+                });
             }
 
             if (!recognizedData.unitName) {
@@ -2547,8 +2558,10 @@ const ImageOCR = (() => {
         const typeIdx = findIdx([/类型/, /分类/, /^type$/, /^kind$/]);
         const enIdx = findIdx([/英文内容/, /英文/, /^english$/, /^word$/, /^words$/, /单词/]);
         const cnIdx = findIdx([/中文释义/, /释义/, /原句/, /中文/, /^translation$/, /^meaning$/]);
-        if (typeIdx >= 0 && enIdx >= 0 && typeIdx !== enIdx) {
-            return { typeIdx, enIdx, cnIdx };
+        const serialIdx = findIdx([/^序号$/, /^序$/, /^编号$/, /^no\.?$/, /^number$/, /^index$/, /^#$/]);
+        // 必须有英文列；类型列可选——没有时也走结构化路径，整份按 序号 顺序进一个桶。
+        if (enIdx >= 0 && (typeIdx < 0 || typeIdx !== enIdx)) {
+            return { typeIdx, enIdx, cnIdx, serialIdx };
         }
         return null;
     }
@@ -2581,10 +2594,14 @@ const ImageOCR = (() => {
             const key = item.en.trim().toLowerCase();
             if (!key || dedupe[targetSection].has(key)) return;
             dedupe[targetSection].add(key);
-            result[targetSection].push({
+            const entry = {
                 en: item.en.trim(),
                 cn: String(item.cn || '').trim()
-            });
+            };
+            if (typeof item._csvSerial === 'number' && Number.isFinite(item._csvSerial)) {
+                entry._csvSerial = item._csvSerial;
+            }
+            result[targetSection].push(entry);
         };
 
         let dataRows = rows;
@@ -2596,18 +2613,43 @@ const ImageOCR = (() => {
 
         // 当 CSV 含有明确的「类型」和「英文内容」列时，直接按列读取标注好的分类，
         // 不再进行任何智能判断（单词/词组/句子以文件标注为准）。
+        // 没有「类型」列但有「英文」列时，也走结构化路径——全部按 序号 顺序进同一个桶
+        // （默认 words），避免被 word-count 启发式拆散打乱顺序。
         const structuredColumns = hasStructuredHeader ? detectStructuredCsvColumns(rows[0]) : null;
         if (structuredColumns) {
-            dataRows.forEach(row => {
+            const hasTypeColumn = structuredColumns.typeIdx >= 0;
+            const serialIdx = structuredColumns.serialIdx;
+            dataRows.forEach((row, rowIdx) => {
                 if (!Array.isArray(row)) return;
-                const section = detectCsvSectionLabel(row[structuredColumns.typeIdx] || '');
-                if (!section) return;
+                let section;
+                if (hasTypeColumn) {
+                    section = detectCsvSectionLabel(row[structuredColumns.typeIdx] || '');
+                    if (!section) return;
+                } else {
+                    // 没有类型列时统一进 words 桶，保证 序号 顺序不被打散。
+                    section = 'words';
+                }
                 const en = String(row[structuredColumns.enIdx] || '').trim();
                 if (!en || looksLikeFileArtifact(en)) return;
                 const cn = structuredColumns.cnIdx >= 0
                     ? String(row[structuredColumns.cnIdx] || '').trim()
                     : '';
-                pushItem(section, { en, cn });
+                let serial = NaN;
+                if (serialIdx >= 0) {
+                    serial = parseInt(String(row[serialIdx] || '').trim(), 10);
+                }
+                if (!Number.isFinite(serial)) serial = rowIdx + 1;
+                pushItem(section, { en, cn, _csvSerial: serial });
+            });
+            // 同一 section 内按 序号 升序排列，确保展示顺序与 CSV 一致。
+            ['words', 'phrases', 'sentences'].forEach(sec => {
+                if (result[sec].some(it => typeof it._csvSerial === 'number')) {
+                    result[sec].sort((a, b) => {
+                        const sa = typeof a._csvSerial === 'number' ? a._csvSerial : Infinity;
+                        const sb = typeof b._csvSerial === 'number' ? b._csvSerial : Infinity;
+                        return sa - sb;
+                    });
+                }
             });
             return result;
         }
@@ -3232,6 +3274,9 @@ const ImageOCR = (() => {
             difficulty: wordCount === 1 ? 1 : (wordCount <= 5 ? 2 : 3)
         };
         if (presetCn) item._cnSource = presetCnSource || 'ocr';
+        if (typeof options.csvSerial === 'number' && Number.isFinite(options.csvSerial)) {
+            item._csvSerial = options.csvSerial;
+        }
 
         // Avoid duplicates
         const list = recognizedData[targetSection];
