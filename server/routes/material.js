@@ -179,14 +179,29 @@ function deriveHintsFromFileName(fileName) {
     const pub = base.match(/(外研版|人教版|译林版|北师大版|牛津版|新外研版|沪教版|冀教版|鲁教版)/);
     if (pub) hints.publisher = pub[1];
 
-    // grade like 七下 / 七年级下 / 八上
-    const gradeCn = base.match(/([一二三四五六七八九])\s*(?:年级)?\s*([上下])/);
-    if (gradeCn) {
-        const g = CN_NUM[gradeCn[1]] || 0;
-        const half = gradeCn[2] === '上' ? '上' : '下';
-        if (g) {
-            hints.grade = `${gradeCn[1]}年级${half}`;
-            hints.book = half === '上' ? '上册' : '下册';
+    // grade matching: try 初/高 prefix first (初一下 = 七年级下), then fall back
+    // to bare CN-number patterns (七下 / 七年级下 / 八上).
+    // 初一/二/三 = 七/八/九年级；高一/二/三 = 高一/二/三年级。
+    const juniorHigh = base.match(/初\s*([一二三])\s*([上下])/);
+    const seniorHigh = base.match(/高\s*([一二三])\s*([上下])/);
+    if (juniorHigh) {
+        const map = { '一': '七', '二': '八', '三': '九' };
+        const half = juniorHigh[2] === '上' ? '上' : '下';
+        hints.grade = `${map[juniorHigh[1]]}年级${half}`;
+        hints.book = half === '上' ? '上册' : '下册';
+    } else if (seniorHigh) {
+        const half = seniorHigh[2] === '上' ? '上' : '下';
+        hints.grade = `高${seniorHigh[1]}${half}`;
+        hints.book = half === '上' ? '上册' : '下册';
+    } else {
+        const gradeCn = base.match(/([一二三四五六七八九])\s*(?:年级)?\s*([上下])/);
+        if (gradeCn) {
+            const g = CN_NUM[gradeCn[1]] || 0;
+            const half = gradeCn[2] === '上' ? '上' : '下';
+            if (g) {
+                hints.grade = `${gradeCn[1]}年级${half}`;
+                hints.book = half === '上' ? '上册' : '下册';
+            }
         }
     }
     return hints;
