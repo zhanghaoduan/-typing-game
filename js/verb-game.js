@@ -113,7 +113,7 @@
         modal.innerHTML = `
             <div class="modal-content" style="max-width:560px;">
                 <h3 id="vg-title">🎯 动词时态游戏 Verb Tense Quiz</h3>
-                <div id="vg-meta" style="color:#666;font-size:13px;margin:4px 0 10px;"></div>
+                <div id="vg-meta" style="color:var(--text-light);font-size:13px;margin:4px 0 10px;"></div>
                 <div id="vg-body">
                     <p class="empty-hint">加载中... Loading...</p>
                 </div>
@@ -289,9 +289,9 @@
         $('vg-meta').textContent = `第 ${state.index + 1} / ${total} 题 · 得分 ${state.score}`;
         $('vg-body').innerHTML = `
             <div style="text-align:center;margin:14px 0 18px;">
-                <div style="font-size:14px;color:#666;margin-bottom:4px;">请写出下面动词的<strong>${escapeHtml(wantLabel)}</strong></div>
+                <div style="font-size:14px;color:var(--text-light);margin-bottom:4px;">请写出下面动词的<strong>${escapeHtml(wantLabel)}</strong></div>
                 <div style="font-size:30px;font-weight:700;letter-spacing:1px;">${escapeHtml(q.base)}</div>
-                ${q.cn ? `<div style="color:#888;margin-top:4px;">${escapeHtml(q.cn)}</div>` : ''}
+                ${q.cn ? `<div style="color:var(--text-light);margin-top:4px;">${escapeHtml(q.cn)}</div>` : ''}
             </div>
             <input id="vg-input" type="text" placeholder="在这里输入答案 Type the form..."
                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
@@ -378,12 +378,12 @@
             ? '规则动词：原形 + -ed（注意拼写规则）。Regular verb formed with -ed.'
             : '不规则动词：需要单独记忆。Irregular verb — memorize the forms.';
         return `
-            <div style="margin-top:8px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;font-size:13px;line-height:1.6;">
+            <div style="margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:13px;line-height:1.6;">
                 <div><strong>原形 Base:</strong> ${escapeHtml(base)}</div>
                 <div><strong>过去式 Past:</strong> ${escapeHtml(past)}</div>
                 <div><strong>过去分词 Past Participle:</strong> ${escapeHtml(pp)}</div>
                 <div><strong>现在分词 -ing:</strong> ${escapeHtml(ing)} · <strong>第三人称 3sg:</strong> ${escapeHtml(third)}</div>
-                <div style="margin-top:6px;color:#555;">${escapeHtml(explain)}</div>
+                <div style="margin-top:6px;color:var(--text-light);">${escapeHtml(explain)}</div>
             </div>`;
     }
 
@@ -403,8 +403,8 @@
             <div style="text-align:center;padding:20px 10px;">
                 <div style="font-size:48px;">${pct >= 80 ? '🏆' : pct >= 60 ? '🎉' : '💪'}</div>
                 <div style="font-size:22px;font-weight:700;margin-top:6px;">${state.score} / ${total} · ${pct}%</div>
-                <div style="color:#666;margin-top:6px;">${pct >= 80 ? '太棒了！Excellent!' : pct >= 60 ? '继续加油 Keep going!' : '多练几遍会更好 Try again!'}</div>
-                ${state.wrongItems.length ? `<div style="color:#888;font-size:12px;margin-top:8px;">错题已记入错题本</div>` : ''}
+                <div style="color:var(--text-light);margin-top:6px;">${pct >= 80 ? '太棒了！Excellent!' : pct >= 60 ? '继续加油 Keep going!' : '多练几遍会更好 Try again!'}</div>
+                ${state.wrongItems.length ? `<div style="color:var(--text-light);font-size:12px;margin-top:8px;">错题已记入错题本</div>` : ''}
             </div>`;
         $('vg-submit').style.display = 'none';
         $('vg-next').style.display = 'none';
