@@ -1408,12 +1408,20 @@ const App = (() => {
     }
 
     function buildMaterialMeta(uidx, u) {
+        const isWholeBook = !(parseInt(u.unit_no, 10) > 0);
+        const namePlaceholder = isWholeBook
+            ? '整册资源（如: 初一下教材拓展词强化练习）'
+            : '例如 Unit 1 / 第一单元';
+        const wholeBookHint = isWholeBook
+            ? `<p class="material-hint" style="grid-column:1/-1;margin:0;color:var(--text-light);font-size:.85em;">📚 未识别到单元号，将作为<strong>整册/整学期资源</strong>保存（单元号 = 0）。可在下方修改名称。</p>`
+            : '';
         return `<div class="material-meta-grid">
-            <label>单元名 Name<input id="mat-${uidx}-name" type="text" value="${escapeHtml(u.name || '')}"></label>
+            <label>单元名 Name<input id="mat-${uidx}-name" type="text" value="${escapeHtml(u.name || '')}" placeholder="${escapeHtml(namePlaceholder)}"></label>
             <label>出版社 Publisher<input id="mat-${uidx}-publisher" type="text" value="${escapeHtml(u.publisher || '')}"></label>
             <label>年级 Grade<input id="mat-${uidx}-grade" type="text" value="${escapeHtml(u.grade || '')}"></label>
             <label>册 Book<input id="mat-${uidx}-book" type="text" value="${escapeHtml(u.book || '')}"></label>
             <label>单元号 Unit No<input id="mat-${uidx}-unitno" type="number" value="${parseInt(u.unit_no, 10) || 0}"></label>
+            ${wholeBookHint}
         </div>`;
     }
 
@@ -1564,8 +1572,15 @@ const App = (() => {
         const sourceUnit = uidx === 'edit'
             ? (materialEditingUnit || materialUnit || {})
             : ((materialGenUnits && materialGenUnits[Number(uidx)]) || {});
+        let resolvedName = val(`mat-${uidx}-name`);
+        if (!resolvedName) {
+            // 未填名称时，回退到文件名（去掉扩展名）→ 整学期/整册资源也能直接保存。
+            const fileName = pickSourceValue(sourceUnit, 'source_file_name', '_sourceFileName') || '';
+            resolvedName = String(fileName).replace(/\.[^.]+$/, '').trim();
+            if (!resolvedName) resolvedName = sourceUnit.name || sourceUnit._name || '整册资源';
+        }
         return {
-            name: val(`mat-${uidx}-name`),
+            name: resolvedName,
             publisher: val(`mat-${uidx}-publisher`),
             grade: val(`mat-${uidx}-grade`),
             book: val(`mat-${uidx}-book`),
@@ -1617,9 +1632,13 @@ const App = (() => {
     }
 
     async function saveAllMaterialUnits() {
-        const blocks = Array.from(document.querySelectorAll('.material-unit-block'))
-            .filter(b => b.style.opacity !== '0.5');
-        if (blocks.length === 0) { alert('没有可保存的单元 No units to save'); return; }
+        const allBlocks = Array.from(document.querySelectorAll('.material-unit-block'));
+        if (allBlocks.length === 0) { alert('没有可保存的单元 No units to save'); return; }
+        const blocks = allBlocks.filter(b => b.style.opacity !== '0.5');
+        if (blocks.length === 0) {
+            alert('所有单元已保存 All units already saved');
+            return;
+        }
         const pubEl = document.getElementById('material-public-all');
         const makePublic = pubEl ? pubEl.checked : true;
         let saved = 0;
